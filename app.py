@@ -303,15 +303,23 @@ st.set_page_config(page_title="Wireless PSI - OMR Portal", layout="centered")
 
 if 'page' not in st.session_state:
     st.session_state.page = 'Upload OMR'
-
-st.sidebar.title("📌 Navigation")
+# --- MOBILE FRIENDLY NAVIGATION ---
 nav_options = ["Upload OMR", "Leaderboard", "Answer Keys"]
 current_index = nav_options.index(st.session_state.page) if st.session_state.page in nav_options else 0
-page_selection = st.sidebar.radio("Go to:", nav_options, index=current_index)
+
+# Places a horizontal menu at the top of the screen instead of hiding it in a sidebar
+page_selection = st.radio(
+    "📌 Navigation", 
+    nav_options, 
+    index=current_index, 
+    horizontal=True,
+    label_visibility="collapsed"
+)
 
 if page_selection != st.session_state.page:
     st.session_state.page = page_selection
     st.rerun()
+st.markdown("---") # Adds a clean dividing line under the menu
 
 # --- PAGE 1: UPLOAD OMR ---
 if st.session_state.page == 'Upload OMR':
@@ -329,7 +337,7 @@ if st.session_state.page == 'Upload OMR':
         category = st.selectbox("Category", ["GEN", "EWS", "OBC", "SC", "ST"])
         
     st.subheader("2. Upload OMR Sheet")
-    uploaded_file = st.file_uploader("Upload OMR PDF", type=["pdf"])
+    uploaded_file = st.file_uploader("Upload OMR PDF (Single File Only)", type=["pdf"], accept_multiple_files=False)
     
     if uploaded_file is not None:
         if not manual_roll.startswith("300") or len(manual_roll) != 8:
