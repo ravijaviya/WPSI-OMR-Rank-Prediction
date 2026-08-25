@@ -292,7 +292,7 @@ elif st.session_state.page == 'Leaderboard':
     st.title("🏆 Wireless PSI - Leaderboard")
     
     with st.spinner("Fetching live leaderboard..."):
-        sheet = get_gspread_client().open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
+        sheet = get_gspread_client().open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
         data = sheet.get_all_records()
     
     if data:
@@ -311,7 +311,7 @@ elif st.session_state.page == 'Leaderboard':
         # 3. Calculate Rank and Sort
         df = df.sort_values(by=["Status", "Total"], ascending=[False, False]).reset_index(drop=True)
         df['Rank'] = df[['Status', 'Total']].apply(tuple, axis=1).rank(method='min', ascending=False).astype(int)
-        df['Roll Number'] = df['Roll Number'].apply(mask_roll_number)
+        df['Roll Number'] = df['Roll Number']
         
         # Display including Gender and Category
         display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']]
