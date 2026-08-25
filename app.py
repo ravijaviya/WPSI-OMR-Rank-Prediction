@@ -228,6 +228,12 @@ def fetch_answer_key(paper_code):
     except Exception:
         return {}
 
+@st.cache_data(ttl=60)
+def fetch_leaderboard_data():
+    client = get_gspread_client()
+    sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
+    return sheet.get_all_records()
+
 def calculate_marks(parsed_answers, paper_code):
     part_a_score, part_b_score = 0.0, 0.0
     key = fetch_answer_key(paper_code)
@@ -406,7 +412,7 @@ if st.session_state.page == 'Upload OMR':
                                     st.warning(f"⚠️ The Answer Key for Paper Set '{paper_code}' is not available yet. Please try again later.")
                                 else:
                                     save_submission(roll_number, paper_code, gender, category, part_a, part_b, total, status, answers)
-                                    
+                                    fetch_leaderboard_data.clear()
                                     # Save full score breakdown to session state
                                     st.session_state.processed_file_id = uploaded_file.file_id
                                     st.session_state.result_part_a = part_a
@@ -444,8 +450,7 @@ elif st.session_state.page == 'Leaderboard':
     st.title("🏆 Wireless PSI - Leaderboard")
     
     with st.spinner("Fetching live leaderboard..."):
-        sheet = get_gspread_client().open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
-        data = sheet.get_all_records()
+        data = fetch_leaderboard_data()
     
     if data:
         df = pd.DataFrame(data)
