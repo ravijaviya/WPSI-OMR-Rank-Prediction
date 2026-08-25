@@ -79,7 +79,7 @@ def parse_omr_image(cv_img):
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-    # 1. Roll Number (Detects MULTIPLE bubbles per column for manual error correction)
+    # 1. Roll Number
     roll_options = []
     for col in range(8):
         scores = []
@@ -91,7 +91,7 @@ def parse_omr_image(cv_img):
         marked = [str(i) for i, score in enumerate(scores) if score > 0.35]
         roll_options.append(marked if marked else ["?"])
 
-    # 2. Paper Code (Detects MULTIPLE bubbles)
+    # 2. Paper Code
     code_scores = [get_bubble_density(thresh, CODE_X, CODE_START_Y + (i * CODE_ROW_GAP), BUBBLE_RADIUS) for i in range(6)]
     marked_codes = [CODE_LABELS[i] for i, score in enumerate(code_scores) if score > 0.35]
     paper_options = marked_codes if marked_codes else ["BLANK"]
@@ -128,7 +128,7 @@ def get_gspread_client():
 def fetch_answer_key(paper_code):
     try:
         client = get_gspread_client()
-        sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet(f"Answer{paper_code}")
+        sheet = client.open("Wireless_PSI_Leaderboard").worksheet(f"Answer{paper_code}")
         return {str(row['Question']): str(row['Answer']) for row in sheet.get_all_records()}
     except Exception:
         return {}
@@ -162,24 +162,25 @@ def calculate_marks(parsed_answers, paper_code):
     status = "PASS" if (part_a_score >= 32.0 and part_b_score >= 48.0) else "FAIL"
     return round(part_a_score, 2), round(part_b_score, 2), round(total_score, 2), status
 
-def save_submission(roll_number, paper_code, part_a, part_b, total, status, raw_answers):
+def save_submission(roll_number, paper_code, gender, category, part_a, part_b, total, status, raw_answers):
     client = get_gspread_client()
-    sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
+    sheet = client.open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
     records = sheet.get_all_records()
     
-    row_data = [str(roll_number), paper_code, float(part_a), float(part_b), float(total), status, json.dumps(raw_answers)]
+    # Columns: Roll Number(A), Paper Code(B), Gender(C), Category(D), Part A(E), Part B(F), Total(G), Status(H), Raw Answers(I)
+    row_data = [str(roll_number), paper_code, gender, category, float(part_a), float(part_b), float(total), status, json.dumps(raw_answers)]
     
     row_idx = next((i + 2 for i, r in enumerate(records) if str(r.get('Roll Number', '')) == str(roll_number)), None)
     
     if row_idx:
-        sheet.update(values=[row_data], range_name=f"A{row_idx}:G{row_idx}")
+        sheet.update(values=[row_data], range_name=f"A{row_idx}:I{row_idx}")
     else:
         sheet.append_row(row_data)
 
 def recalculate_entire_leaderboard():
     st.cache_data.clear()
     client = get_gspread_client()
-    sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
+    sheet = client.open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
     records = sheet.get_all_records()
     if not records: return
         
@@ -193,34 +194,28 @@ def recalculate_entire_leaderboard():
         if status is None:
             part_a, part_b, total, status = 0.0, 0.0, 0.0, "KEY ERROR"
             
+        # We only update Part A(E), Part B(F), Total(G), and Status(H) columns during batch recalibration
         updated_scores.append([part_a, part_b, total, status]) 
         
-    sheet.update(values=updated_scores, range_name=f"C2:F{len(records) + 1}")
+    sheet.update(values=updated_scores, range_name=f"E2:H{len(records) + 1}")
 
 def mask_roll_number(roll_no):
     roll_str = str(roll_no)
-    return roll_str if len(roll_str) == 8 else "****"
-    #return roll_str[:4] + "****" if len(roll_str) == 8 else "****"
+    return roll_str[:4] + "****" if len(roll_str) == 8 else "****"
 
 # ==========================================
 # 3. STREAMLIT UI
 # ==========================================
 st.set_page_config(page_title="Wireless PSI - OMR Portal", layout="centered")
 
-# Set up default page state
 if 'page' not in st.session_state:
     st.session_state.page = 'Upload OMR'
 
-# Sidebar Navigation Menu
 st.sidebar.title("📌 Navigation")
-# Calculate the index of the current page
 nav_options = ["Upload OMR", "Leaderboard", "Answer Keys"]
-current_index = nav_options.index(st.session_state.page)
-
-# Draw the radio button without the "key" parameter
+current_index = nav_options.index(st.session_state.page) if st.session_state.page in nav_options else 0
 page_selection = st.sidebar.radio("Go to:", nav_options, index=current_index)
 
-# If the user clicks a new page on the sidebar, update state and refresh
 if page_selection != st.session_state.page:
     st.session_state.page = page_selection
     st.rerun()
@@ -231,11 +226,14 @@ if st.session_state.page == 'Upload OMR':
     st.write("Enter your details and upload your scanned OMR sheet (PDF) to evaluate your score.")
     
     st.subheader("1. Enter Your Details")
+    
     col1, col2 = st.columns(2)
     with col1:
         manual_roll = st.text_input("8-digit Roll Number (Must start with 300)", max_chars=8)
+        gender = st.selectbox("Gender", ["Male", "Female"])
     with col2:
         manual_code = st.selectbox("Select Paper Set", ['A', 'B', 'C', 'D', 'E', 'F'])
+        category = st.selectbox("Category", ["GEN", "EWS", "OBC", "SC", "ST"])
         
     st.subheader("2. Upload OMR Sheet")
     uploaded_file = st.file_uploader("Upload OMR PDF", type=["pdf"])
@@ -244,51 +242,57 @@ if st.session_state.page == 'Upload OMR':
         if not manual_roll.startswith("300") or len(manual_roll) != 8:
             st.error("⚠️ Invalid Roll Number. It must be exactly 8 digits long and start with '300'.")
         else:
-            with st.spinner("Processing OMR Sheet & Verifying Data... Please wait."):
-                images = convert_from_bytes(uploaded_file.read(), dpi=300)
-                img_cv = cv2.cvtColor(np.array(images[0]), cv2.COLOR_RGB2BGR)
-                
-                # Fetch the options detected by the OpenCV engine
-                roll_options, paper_options, answers = parse_omr_image(img_cv)
-                
-                # Validation: Does the manual input exist inside the darkened bubbles?
-                roll_match = all(m_digit in opts for m_digit, opts in zip(manual_roll, roll_options))
-                paper_match = manual_code in paper_options
-                
-                if not roll_match or not paper_match:
-                    # Format what the scanner actually saw for the error message
-                    scanned_r = "".join([opts[0] if len(opts)==1 else f"[{','.join(opts)}]" for opts in roll_options])
-                    scanned_p = paper_options[0] if len(paper_options)==1 else f"[{','.join(paper_options)}]"
+            try:
+                with st.spinner("Processing OMR Sheet & Verifying Data... Please wait."):
+                    pdf_bytes = uploaded_file.read()
+                    images = convert_from_bytes(pdf_bytes, dpi=300)
                     
-                    st.error("❌ **Data Mismatch Detected! Upload Rejected.**")
-                    st.write(f"- **Scanned Roll No:** `{scanned_r}` | **Entered Roll No:** `{manual_roll}`")
-                    st.write(f"- **Scanned Paper Set:** `{scanned_p}` | **Entered Paper Set:** `{manual_code}`")
-                    st.info("The system could not verify your manual input against the darkened bubbles on the sheet.")
-                
-                else:
-                    # If it matches, we trust the user's manual input as the absolute truth
-                    roll_number = manual_roll
-                    paper_code = manual_code
+                    if not images:
+                        raise ValueError("The uploaded PDF contains no readable pages.")
+                        
+                    img_cv = cv2.cvtColor(np.array(images[0]), cv2.COLOR_RGB2BGR)
                     
-                    if roll_number == "30010843":
-                        st.info("Admin Hook Triggered: Recalculating all leaderboard scores & statuses...")
-                        recalculate_entire_leaderboard()
+                    roll_options, paper_options, answers = parse_omr_image(img_cv)
                     
-                    part_a, part_b, total, status = calculate_marks(answers, paper_code)
+                    roll_match = all(m_digit in opts for m_digit, opts in zip(manual_roll, roll_options))
+                    paper_match = manual_code in paper_options
                     
-                    if status is None:
-                        st.warning(f"⚠️ The Answer Key for Paper Set '{paper_code}' is not available yet. Please try again later.")
+                    if not roll_match or not paper_match:
+                        scanned_r = "".join([opts[0] if len(opts)==1 else f"[{','.join(opts)}]" for opts in roll_options])
+                        scanned_p = paper_options[0] if len(paper_options)==1 else f"[{','.join(paper_options)}]"
+                        
+                        st.error("❌ **Data Mismatch Detected! Upload Rejected.**")
+                        st.write(f"- **Scanned Roll No:** `{scanned_r}` | **Entered Roll No:** `{manual_roll}`")
+                        st.write(f"- **Scanned Paper Set:** `{scanned_p}` | **Entered Paper Set:** `{manual_code}`")
+                        st.info("The system could not verify your manual input against the darkened bubbles on the sheet.")
+                    
                     else:
-                        save_submission(roll_number, paper_code, part_a, part_b, total, status, answers)
-                        st.session_state.page = 'Leaderboard'
-                        st.rerun()
+                        roll_number = manual_roll
+                        paper_code = manual_code
+                        
+                        if roll_number == "30010843":
+                            st.info("Admin Hook Triggered: Recalculating all leaderboard scores & statuses...")
+                            recalculate_entire_leaderboard()
+                        
+                        part_a, part_b, total, status = calculate_marks(answers, paper_code)
+                        
+                        if status is None:
+                            st.warning(f"⚠️ The Answer Key for Paper Set '{paper_code}' is not available yet. Please try again later.")
+                        else:
+                            save_submission(roll_number, paper_code, gender, category, part_a, part_b, total, status, answers)
+                            st.session_state.page = 'Leaderboard'
+                            st.rerun()
+                            
+            except Exception as e:
+                st.error("❌ **Failed to process the PDF file.**")
+                st.error(f"Details: {e}")
 
 # --- PAGE 2: LEADERBOARD ---
 elif st.session_state.page == 'Leaderboard':
     st.title("🏆 Wireless PSI - Leaderboard")
     
     with st.spinner("Fetching live leaderboard..."):
-        sheet = get_gspread_client().open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
+        sheet = get_gspread_client().open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
         data = sheet.get_all_records()
     
     if data:
@@ -297,12 +301,13 @@ elif st.session_state.page == 'Leaderboard':
         df['Rank'] = df[['Status', 'Total']].apply(tuple, axis=1).rank(method='min', ascending=False).astype(int)
         df['Roll Number'] = df['Roll Number'].apply(mask_roll_number)
         
-        display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Part A', 'Part B', 'Total', 'Status']]
+        # Display including Gender and Category
+        display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']]
         
         def style_status(val):
             if val == 'PASS': color = 'green'
             elif val == 'FAIL': color = 'red'
-            else: color = 'orange' # For KEY ERROR
+            else: color = 'orange'
             return f'color: {color}; font-weight: bold;'
             
         st.dataframe(display_df.style.map(style_status, subset=['Status']), width='stretch', hide_index=True)
@@ -311,7 +316,7 @@ elif st.session_state.page == 'Leaderboard':
 
 # --- PAGE 3: ANSWER KEYS ---
 elif st.session_state.page == 'Answer Keys':
-    st.title("🔑 Un-Official Answer Keys")
+    st.title("🔑 Official Answer Keys")
     st.write("View the official answer keys used to grade the OMR sheets.")
     
     selected_set = st.selectbox("Select Paper Set", ['A', 'B', 'C', 'D', 'E', 'F'])
@@ -320,27 +325,19 @@ elif st.session_state.page == 'Answer Keys':
         ans_key = fetch_answer_key(selected_set)
         
     if ans_key:
-        # Sort keys numerically (Q1, Q2, ..., Q200) instead of alphabetically
         sorted_qnums = sorted(ans_key.keys(), key=lambda x: int(x.replace("Q", "")))
         
-        # Divide into 4 columns to prevent excessive scrolling (matches the physical OMR layout)
         cols = st.columns(4)
-        
-        # Calculate how many questions go into each column (e.g., 200 / 4 = 50)
         chunk_size = math.ceil(len(sorted_qnums) / 4)
         
         for i in range(4):
-            # Get the slice of questions for this specific column
             start_idx = i * chunk_size
             end_idx = min((i + 1) * chunk_size, len(sorted_qnums))
             chunk_qnums = sorted_qnums[start_idx:end_idx]
             
             if chunk_qnums:
-                # Build DataFrame for just this chunk
                 table_data = [{"Q No": q, "Answer": ans_key[q]} for q in chunk_qnums]
                 df_chunk = pd.DataFrame(table_data)
-                
-                # Display in the respective column
                 cols[i].dataframe(df_chunk, width='stretch', hide_index=True)
     else:
         st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
