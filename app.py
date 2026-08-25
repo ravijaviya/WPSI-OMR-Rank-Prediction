@@ -6,7 +6,7 @@ from google.oauth2.service_account import Credentials
 import cv2
 import numpy as np
 import math
-import PyMuPDF  # This is PyMuPDF
+import pymupdf  # This is PyMuPDF
 
 # ==========================================
 # 1. FIXED CANVAS ALIGNMENT ENGINE
