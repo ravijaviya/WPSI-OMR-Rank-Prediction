@@ -128,7 +128,7 @@ def get_gspread_client():
 def fetch_answer_key(paper_code):
     try:
         client = get_gspread_client()
-        sheet = client.open("Wireless_PSI_Leaderboard").worksheet(f"Answer{paper_code}")
+        sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet(f"Answer{paper_code}")
         return {str(row['Question']): str(row['Answer']) for row in sheet.get_all_records()}
     except Exception:
         return {}
@@ -164,7 +164,7 @@ def calculate_marks(parsed_answers, paper_code):
 
 def save_submission(roll_number, paper_code, part_a, part_b, total, status, raw_answers):
     client = get_gspread_client()
-    sheet = client.open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
+    sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
     records = sheet.get_all_records()
     
     row_data = [str(roll_number), paper_code, float(part_a), float(part_b), float(total), status, json.dumps(raw_answers)]
@@ -179,7 +179,7 @@ def save_submission(roll_number, paper_code, part_a, part_b, total, status, raw_
 def recalculate_entire_leaderboard():
     st.cache_data.clear()
     client = get_gspread_client()
-    sheet = client.open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
+    sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
     records = sheet.get_all_records()
     if not records: return
         
@@ -281,7 +281,7 @@ elif st.session_state.page == 'Leaderboard':
     st.title("🏆 Wireless PSI - Leaderboard")
     
     with st.spinner("Fetching live leaderboard..."):
-        sheet = get_gspread_client().open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
+        sheet = get_gspread_client().open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
         data = sheet.get_all_records()
     
     if data:
@@ -337,7 +337,7 @@ elif st.session_state.page == 'Answer Keys':
                 cols[i].dataframe(df_chunk, use_container_width=True, hide_index=True)
     else:
         st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
-        
+
 # ==========================================
 # 4. GLOBAL FOOTER
 # ==========================================
