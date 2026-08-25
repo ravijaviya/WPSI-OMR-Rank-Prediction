@@ -292,11 +292,23 @@ elif st.session_state.page == 'Leaderboard':
     st.title("🏆 Wireless PSI - Leaderboard")
     
     with st.spinner("Fetching live leaderboard..."):
-        sheet = get_gspread_client().open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
+        sheet = get_gspread_client().open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
         data = sheet.get_all_records()
     
     if data:
         df = pd.DataFrame(data)
+        
+        # 1. Safeguard: Add missing columns if they don't exist in older data
+        if 'Gender' not in df.columns:
+            df['Gender'] = "N/A"
+        if 'Category' not in df.columns:
+            df['Category'] = "N/A"
+            
+        # 2. Safeguard: Fill empty strings in older rows with "N/A"
+        df['Gender'] = df['Gender'].replace('', 'N/A')
+        df['Category'] = df['Category'].replace('', 'N/A')
+
+        # 3. Calculate Rank and Sort
         df = df.sort_values(by=["Status", "Total"], ascending=[False, False]).reset_index(drop=True)
         df['Rank'] = df[['Status', 'Total']].apply(tuple, axis=1).rank(method='min', ascending=False).astype(int)
         df['Roll Number'] = df['Roll Number'].apply(mask_roll_number)
