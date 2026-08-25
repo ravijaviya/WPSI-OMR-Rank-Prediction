@@ -212,11 +212,17 @@ if 'page' not in st.session_state:
 
 # Sidebar Navigation Menu
 st.sidebar.title("📌 Navigation")
-page_selection = st.sidebar.radio(
-    "Go to:",
-    ["Upload OMR", "Leaderboard", "Answer Keys"],
-    key="page"
-)
+# Calculate the index of the current page
+nav_options = ["Upload OMR", "Leaderboard", "Answer Keys"]
+current_index = nav_options.index(st.session_state.page)
+
+# Draw the radio button without the "key" parameter
+page_selection = st.sidebar.radio("Go to:", nav_options, index=current_index)
+
+# If the user clicks a new page on the sidebar, update state and refresh
+if page_selection != st.session_state.page:
+    st.session_state.page = page_selection
+    st.rerun()
 
 # --- PAGE 1: UPLOAD OMR ---
 if st.session_state.page == 'Upload OMR':
@@ -298,7 +304,7 @@ elif st.session_state.page == 'Leaderboard':
             else: color = 'orange' # For KEY ERROR
             return f'color: {color}; font-weight: bold;'
             
-        st.dataframe(display_df.style.map(style_status, subset=['Status']), use_container_width=True, hide_index=True)
+        st.dataframe(display_df.style.map(style_status, subset=['Status']), width='stretch', hide_index=True)
     else:
         st.info("No submissions yet. Be the first to upload!")
 
@@ -334,7 +340,7 @@ elif st.session_state.page == 'Answer Keys':
                 df_chunk = pd.DataFrame(table_data)
                 
                 # Display in the respective column
-                cols[i].dataframe(df_chunk, use_container_width=True, hide_index=True)
+                cols[i].dataframe(df_chunk, width='stretch', hide_index=True)
     else:
         st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
 
