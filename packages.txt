@@ -1,2 +1,0 @@
-poppler-utils
-libgl1

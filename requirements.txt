@@ -3,5 +3,5 @@ pandas
 gspread
 google-auth
 opencv-python-headless
-pdf2image
+PyMuPDF
 numpy
