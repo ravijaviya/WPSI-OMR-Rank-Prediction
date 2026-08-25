@@ -1,7 +1,7 @@
 streamlit
 pandas
-opencv-python-headless
-numpy
-pdf2image
 gspread
 google-auth
+opencv-python-headless
+pdf2image
+numpy
