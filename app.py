@@ -6,7 +6,7 @@ from google.oauth2.service_account import Credentials
 import cv2
 import numpy as np
 import math
-import fitz  # This is PyMuPDF
+import PyMuPDF  # This is PyMuPDF
 
 # ==========================================
 # 1. FIXED CANVAS ALIGNMENT ENGINE
@@ -351,22 +351,20 @@ if st.session_state.page == 'Upload OMR':
                             pdf_bytes = uploaded_file.read()
                             
                             # --- MEMORY OPTIMIZED PDF CONVERSION ---
-                            doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+                            # Updated to use the new pymupdf API
+                            doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
                             if doc.page_count == 0:
                                 raise ValueError("The uploaded PDF contains no readable pages.")
                             
-                            page = doc.load_page(0) # Grab the first page
+                            page = doc.load_page(0) 
                             
-                            # Standard PDFs render at 72 DPI. To maintain your 300 DPI 
-                            # coordinate calibrations, we scale it up by ~4.16 (300/72)
-                            zoom_matrix = fitz.Matrix(4.16, 4.16) 
+                            zoom_matrix = pymupdf.Matrix(4.16, 4.16) 
                             pix = page.get_pixmap(matrix=zoom_matrix, alpha=False)
                             
-                            # Convert the raw Pixmap bytes directly into an OpenCV-ready NumPy array
                             img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, 3)
                             img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
                             
-                            doc.close() # Free memory immediately
+                            doc.close() 
                             # ---------------------------------------
                             
                             roll_options, paper_options, answers, annotated_img = parse_omr_image(img_cv)
