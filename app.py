@@ -128,7 +128,7 @@ def get_gspread_client():
 def fetch_answer_key(paper_code):
     try:
         client = get_gspread_client()
-        sheet = client.open("Wireless_PSI_Leaderboard").worksheet(f"Answer{paper_code}")
+        sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet(f"Answer{paper_code}")
         return {str(row['Question']): str(row['Answer']) for row in sheet.get_all_records()}
     except Exception:
         return {}
@@ -164,7 +164,7 @@ def calculate_marks(parsed_answers, paper_code):
 
 def save_submission(roll_number, paper_code, gender, category, part_a, part_b, total, status, raw_answers):
     client = get_gspread_client()
-    sheet = client.open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
+    sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
     records = sheet.get_all_records()
     
     # Columns: Roll Number(A), Paper Code(B), Gender(C), Category(D), Part A(E), Part B(F), Total(G), Status(H), Raw Answers(I)
@@ -180,7 +180,7 @@ def save_submission(roll_number, paper_code, gender, category, part_a, part_b, t
 def recalculate_entire_leaderboard():
     st.cache_data.clear()
     client = get_gspread_client()
-    sheet = client.open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
+    sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
     records = sheet.get_all_records()
     if not records: return
         
@@ -292,7 +292,7 @@ elif st.session_state.page == 'Leaderboard':
     st.title("🏆 Wireless PSI - Leaderboard")
     
     with st.spinner("Fetching live leaderboard..."):
-        sheet = get_gspread_client().open("Wireless_PSI_Leaderboard").worksheet("Leaderboard")
+        sheet = get_gspread_client().open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
         data = sheet.get_all_records()
     
     if data:
