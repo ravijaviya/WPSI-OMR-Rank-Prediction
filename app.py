@@ -280,6 +280,89 @@ def parse_omr_image(cv_img, expected_roll):
         
     return roll_options, paper_options, answers, debug_img
 
+def allocate_post(df, vacancies):
+    """
+    Simulates Horizontal Reservation for a specific post.
+    Returns the cutoffs and the list of allocated candidate indices.
+    """
+    cutoffs = {
+        "GEN Male": "N/A", "GEN Female": "N/A",
+        "EWS Male": "N/A", "EWS Female": "N/A",
+        "OBC Male": "N/A", "OBC Female": "N/A",
+        "SC Male": "N/A", "SC Female": "N/A",
+        "ST Male": "N/A", "ST Female": "N/A"
+    }
+    
+    allocated_indices = []
+    eligible_df = df.copy()
+    
+    if eligible_df.empty:
+        return cutoffs, allocated_indices
+
+    # --- STEP 1: GENERAL (UR) MERIT ALLOCATION ---
+    gen_seats = vacancies.get("GEN", 0)
+    gen_candidates = eligible_df.head(gen_seats).copy()
+    eligible_df = eligible_df.drop(gen_candidates.index) 
+    
+    women_gen_needed = vacancies.get("Women (GEN)", 0)
+    women_in_gen = len(gen_candidates[gen_candidates['Gender'] == 'Female'])
+    
+    if women_in_gen < women_gen_needed:
+        shortfall = women_gen_needed - women_in_gen
+        swap_in = eligible_df[eligible_df['Gender'] == 'Female'].head(shortfall)
+        
+        if not swap_in.empty:
+            # Find the lowest scoring males to push out
+            swap_out_indices = gen_candidates[gen_candidates['Gender'] == 'Male'].tail(len(swap_in)).index
+            gen_candidates = gen_candidates.drop(swap_out_indices)
+            gen_candidates = pd.concat([gen_candidates, swap_in])
+            
+            # REINTEGRATION: Add pushed-out males BACK to the eligible pool for category selection
+            swapped_out_males = df.loc[swap_out_indices]
+            eligible_df = pd.concat([eligible_df, swapped_out_males]).sort_values(by='Total', ascending=False)
+            
+            # Remove the newly swapped-in females from the eligible pool
+            eligible_df = eligible_df.drop(swap_in.index)
+
+    allocated_indices.extend(gen_candidates.index.tolist())
+
+    if not gen_candidates.empty:
+        males = gen_candidates[gen_candidates['Gender'] == 'Male']
+        females = gen_candidates[gen_candidates['Gender'] == 'Female']
+        if not males.empty: cutoffs["GEN Male"] = round(males['Total'].min(), 2)
+        if not females.empty: cutoffs["GEN Female"] = round(females['Total'].min(), 2)
+
+    # --- STEP 2: CATEGORY ALLOCATIONS ---
+    categories = ["EWS", "OBC", "SC", "ST"]
+    
+    for cat in categories:
+        cat_seats = vacancies.get(cat, 0)
+        cat_women_needed = vacancies.get(f"Women ({cat})", 0)
+        
+        cat_pool = eligible_df[eligible_df['Category'] == cat].copy()
+        cat_candidates = cat_pool.head(cat_seats).copy()
+        
+        women_in_cat = len(cat_candidates[cat_candidates['Gender'] == 'Female'])
+        
+        if women_in_cat < cat_women_needed:
+            shortfall = cat_women_needed - women_in_cat
+            remaining_cat_pool = cat_pool.drop(cat_candidates.index)
+            swap_in = remaining_cat_pool[remaining_cat_pool['Gender'] == 'Female'].head(shortfall)
+            
+            if not swap_in.empty:
+                swap_out_indices = cat_candidates[cat_candidates['Gender'] == 'Male'].tail(len(swap_in)).index
+                cat_candidates = cat_candidates.drop(swap_out_indices)
+                cat_candidates = pd.concat([cat_candidates, swap_in])
+
+        allocated_indices.extend(cat_candidates.index.tolist())
+
+        if not cat_candidates.empty:
+            males = cat_candidates[cat_candidates['Gender'] == 'Male']
+            females = cat_candidates[cat_candidates['Gender'] == 'Female']
+            if not males.empty: cutoffs[f"{cat} Male"] = round(males['Total'].min(), 2)
+            if not females.empty: cutoffs[f"{cat} Female"] = round(females['Total'].min(), 2)
+
+    return cutoffs, allocated_indices
 # ==========================================
 # 4. GOOGLE SHEETS & GRADING BACKEND
 # ==========================================
@@ -381,7 +464,7 @@ st.set_page_config(page_title="Wireless PSI - OMR Portal", layout="centered")
 if 'page' not in st.session_state:
     st.session_state.page = 'Upload OMR'
 # --- MOBILE FRIENDLY NAVIGATION ---
-nav_options = ["Upload OMR", "Leaderboard", "Answer Keys"]
+nav_options = ["Upload OMR", "Leaderboard","Live Cut-Offs 🔴", "Answer Keys"]
 current_index = nav_options.index(st.session_state.page) if st.session_state.page in nav_options else 0
 
 page_selection = st.radio(
@@ -559,9 +642,9 @@ elif st.session_state.page == 'Leaderboard':
 
         df = df.sort_values(by=["Status", "Total"], ascending=[False, False]).reset_index(drop=True)
         df['Rank'] = df[['Status', 'Total']].apply(tuple, axis=1).rank(method='min', ascending=False).astype(int)
-        df['Roll Number'] = df['Roll Number']#.apply(mask_roll_number)
+        df['Roll Number'] = df['Roll Number'].apply(mask_roll_number)
         
-        display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']].head(1000)
+        display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']].head(500)
         
         def style_status(val):
             if val == 'PASS': color = 'green'
@@ -598,7 +681,64 @@ elif st.session_state.page == 'Leaderboard':
     vacancy_df = pd.DataFrame(vacancy_data)
     st.dataframe(vacancy_df, hide_index=True, width='stretch')
 
-# --- PAGE 3: ANSWER KEYS ---
+# --- PAGE 3: LIVE CUT-OFF PREDICTOR ---
+elif st.session_state.page == 'Live Cut-Offs 🔴':
+    st.title("🔥 Live Cut-Off Predictor")
+    st.write("WPSI seats are allocated to top rankers first. Remaining candidates are then evaluated for TO seats. *These predictions update automatically as more candidates upload their OMR sheets.*")
+    
+    with st.spinner("Calculating live cut-offs based on current leaderboard..."):
+        data = fetch_leaderboard_data()
+        
+        if data:
+            df = pd.DataFrame(data)
+            
+            # 1. Clean missing data (Default: GEN / Male)
+            simulation_df = df.copy()
+            simulation_df['Category'] = simulation_df['Category'].replace(["", "N/A", None], "GEN").fillna("GEN")
+            simulation_df['Gender'] = simulation_df['Gender'].replace(["", "N/A", None], "Male").fillna("Male")
+            
+            # 2. Filter strictly for PASSING candidates, sorted by Total Score
+            passing_pool = simulation_df[simulation_df['Status'] == 'PASS'].sort_values(by='Total', ascending=False)
+
+            # (Insert your wpsi_vacancies and to_vacancies dictionaries here)
+            wpsi_vacancies = { ... }
+            to_vacancies = { ... }
+
+            # 3. Waterfall Step A: Allocate WPSI
+            wpsi_cutoffs, wpsi_allocated_indices = allocate_post(passing_pool, wpsi_vacancies)
+            
+            # 4. Waterfall Step B: Remove WPSI winners and allocate TO
+            to_pool = passing_pool.drop(wpsi_allocated_indices, errors='ignore')
+            to_cutoffs, _ = allocate_post(to_pool, to_vacancies)
+
+            # Build Display Tables
+            categories = ["GEN", "EWS", "OBC", "SC", "ST"]
+            
+            wpsi_display = pd.DataFrame({
+                "Category": categories,
+                "Male Cut-off": [wpsi_cutoffs[f"{cat} Male"] for cat in categories],
+                "Female Cut-off": [wpsi_cutoffs[f"{cat} Female"] for cat in categories]
+            })
+            
+            to_display = pd.DataFrame({
+                "Category": categories,
+                "Male Cut-off": [to_cutoffs[f"{cat} Male"] for cat in categories],
+                "Female Cut-off": [to_cutoffs[f"{cat} Female"] for cat in categories]
+            })
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("**Police Sub Inspector (Wireless)**")
+                st.dataframe(wpsi_display, hide_index=True, width='stretch')
+            
+            with col2:
+                st.markdown("**Technical Operator (TO)**")
+                st.dataframe(to_display, hide_index=True, width='stretch')
+            
+        else:
+            st.info("Not enough data to calculate cut-offs yet. Upload an OMR sheet to get started!")
+
+# --- PAGE 4: ANSWER KEYS ---
 elif st.session_state.page == 'Answer Keys':
     st.title("🔑 Official Answer Keys")
     st.write("View the official answer keys used to grade the OMR sheets.")
@@ -632,7 +772,7 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
     st.write("If this portal saved you time, consider a small tip to help keep the servers running!")
     
     # 1. Define your list of supporters here
-    supporters = ["Raj", "Vijay", "Zeel", "Gaurang"]
+    supporters = ["Raj", "Vijay", "Zeel", "Gaurang","Dhaval","Jigar"]
     
     # 2. Dynamically generate the CSS keyframes based on the list length
     num_supporters = len(supporters)
