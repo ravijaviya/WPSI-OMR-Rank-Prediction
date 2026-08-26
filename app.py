@@ -627,8 +627,54 @@ elif st.session_state.page == 'Answer Keys':
         st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
 
 # --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
+# --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
 with st.expander("☕ Support this free tool (Optional)", expanded=False):
     st.write("If this portal saved you time, consider a small tip to help keep the servers running!")
+    
+    # 1. Define your list of supporters here
+    supporters = ["Raj", "Vijay", "Zeel", "Gaurang"]
+    
+    # 2. Dynamically generate the CSS keyframes based on the list length
+    num_supporters = len(supporters)
+    keyframes_css = ""
+    
+    for i, name in enumerate(supporters):
+        start_pct = int((i / num_supporters) * 100)
+        end_pct = int(((i + 1) / num_supporters) * 100) - 1
+        
+        # Ensure the last frame perfectly ends at 100%
+        if i == num_supporters - 1:
+            end_pct = 100
+            
+        keyframes_css += f"{start_pct}%, {end_pct}% {{ content: '🎉 Thank you, {name} for your support!'; }}\n        "
+
+    # 3. Inject the dynamically built CSS
+    st.markdown(f"""
+        <style>
+        @keyframes changeSupporter {{
+            {keyframes_css}
+        }}
+        .supporter-ticker::after {{
+            content: '🎉 Thank you, {supporters[0]} for your support!'; 
+            animation: changeSupporter {num_supporters * 2}s infinite; /* 2 seconds per person */
+            color: #28a745;
+            font-weight: 600;
+        }}
+        .ticker-box {{
+            text-align: center;
+            padding: 8px;
+            margin-bottom: 15px;
+            background-color: #f8fff8;
+            border-radius: 5px;
+            border: 1px dashed #28a745;
+        }}
+        </style>
+        
+        <div class="ticker-box">
+            <span class="supporter-ticker"></span>
+        </div>
+    """, unsafe_allow_html=True)
+    
     st.write("Note: If direct app redirect does not work, take screenshot and use it. Thanks!!")
     qr_col, text_col = st.columns([1, 2])
     
