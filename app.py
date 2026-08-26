@@ -222,7 +222,7 @@ def get_gspread_client():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
     return gspread.authorize(creds)
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=6000)
 def fetch_answer_key(paper_code):
     try:
         client = get_gspread_client()
@@ -231,7 +231,7 @@ def fetch_answer_key(paper_code):
     except Exception:
         return {}
 
-@st.cache_data(ttl=60)
+@st.cache_data(ttl=600)
 def fetch_leaderboard_data():
     client = get_gspread_client()
     sheet = client.open_by_key("1cRNQiZQRuvBzlsHKynvRJF7AD7Vg0628lNq6Ko6Bsic").worksheet("Leaderboard")
@@ -516,8 +516,7 @@ st.markdown(
     """
     <div style='text-align: center; color: gray; padding-top: 20px;'>
         <p>Developed by <b>RJ</b></p>
-        <p>Join our Telegram for updates & support: <a href='https://t.me/WirelessPSI2026' target='_blank'>t.me/WirelessPSI2026</a></p>
-    </div>
+        </div>
     """,
     unsafe_allow_html=True
 )
