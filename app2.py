@@ -422,7 +422,7 @@ if st.session_state.page == 'Upload OMR':
                                 scanned_r = "".join([opts[0] if len(opts)==1 else f"[{','.join(opts)}]" for opts in roll_options])
                                 scanned_p = paper_options[0] if len(paper_options)==1 else f"[{','.join(paper_options)}]"
                                 
-                                st.error("❌ **Data Mismatch Detected! Upload Rejected.**")
+                                st.error("❌ **Data Mismatch Detected! Upload Rejected. Contact Admin with Error screenshot.**")
                                 st.write(f"- **Scanned Roll No:** `{scanned_r}` | **Entered Roll No:** `{manual_roll}`")
                                 st.write(f"- **Scanned Paper Set:** `{scanned_p}` | **Entered Paper Set:** `{manual_code}`")
                                 st.info("The system could not verify your manual input against the darkened bubbles. Please check the image below.")
