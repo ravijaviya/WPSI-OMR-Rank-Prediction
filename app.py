@@ -303,7 +303,9 @@ def recalculate_entire_leaderboard():
 
 def mask_roll_number(roll_no):
     roll_str = str(roll_no)
-    return roll_str[:4] + "****" if len(roll_str) == 8 else "****"
+    # Keeps the first 2 digits and the last 2 digits, masking the middle 4
+    return roll_str[:2] + "****" + roll_str[-2:] if len(roll_str) == 8 else "****"
+    # return roll_str[:4] + "****" if len(roll_str) == 8 else "****"
 
 # ==========================================
 # 5. STREAMLIT UI
