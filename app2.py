@@ -522,6 +522,34 @@ elif st.session_state.page == 'Leaderboard':
     else:
         st.info("No submissions yet. Be the first to upload!")
 
+    # --- NEW VACANCY DETAILS TABLE ---
+    st.markdown("---")
+    st.subheader("📊 Official Vacancy Details")
+    st.write("Category-wise seat distribution based on the official notification:")
+    
+    # Hardcoding the extracted data from the official image
+    vacancy_data = {
+        "Post Name": ["Police Sub Inspector (Wireless)", "Technical Operator"],
+        "Total Seats": [172, 698],
+        "GEN": [74, 278],
+        "EWS": [25, 74],
+        "OBC": [38, 165],
+        "SC": [12, 48],
+        "ST": [23, 133],
+        "Women (GEN)": [24, 91],
+        "Women (EWS)": [8, 24],
+        "Women (OBC)": [12, 54],
+        "Women (SC)": [3, 15],
+        "Women (ST)": [7, 43],
+        "Ex-Army": [17, 69],
+        "PH": [8, 36]
+    }
+    
+    vacancy_df = pd.DataFrame(vacancy_data)
+    
+    # Displaying the dataframe cleanly
+    st.dataframe(vacancy_df, hide_index=True, width='stretch')
+
 # --- PAGE 3: ANSWER KEYS ---
 elif st.session_state.page == 'Answer Keys':
     st.title("🔑 Official Answer Keys")
