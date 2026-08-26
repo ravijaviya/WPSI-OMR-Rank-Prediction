@@ -709,7 +709,7 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
                 df_dl['Roll Number'] = df_dl['Roll Number'].apply(mask_roll_number)
             
             # Filter strictly to the requested columns
-            requested_cols = ['Roll Number', 'Paper Code', 'Part A', 'Part B', 'Total', 'Category', 'Gender']
+            requested_cols = ['Roll Number', 'Category', 'Gender', 'Paper Code', 'Part A', 'Part B', 'Total']
             # Intersection just in case the sheet is empty or missing a header
             final_cols = [col for col in requested_cols if col in df_dl.columns]
             
