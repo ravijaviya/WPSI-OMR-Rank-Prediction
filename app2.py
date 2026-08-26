@@ -65,14 +65,17 @@ def align_omr_sheet(image):
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     
     # Aggressive thresholding to guarantee finding black squares
-    _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
+    # OLD: _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
+    
+    # NEW:
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     blocks = []
 
     for c in contours:
         area = cv2.contourArea(c)
-        if area < 500 or area > 80000: 
+        if area < 1000 or area > 150000: 
             continue
             
         x, y, w, h = cv2.boundingRect(c)
@@ -134,13 +137,13 @@ START_Y = 445
 MCQ_COLS_X = [385, 895, 1400, 1905]
 MCQ_OPTIONS = ['A', 'B', 'C', 'D', 'E']
 
-ROLL_START_X = 2360
-ROLL_START_Y = 1740
+ROLL_START_X = 2365
+ROLL_START_Y = 1745
 ROLL_COL_GAP = 71.4
 ROLL_ROW_GAP = 81.2
 
 CODE_X = 2650
-CODE_START_Y = 3200
+CODE_START_Y = 3205
 CODE_ROW_GAP = 81.2
 CODE_LABELS = ['A', 'B', 'C', 'D', 'E', 'F']
 
