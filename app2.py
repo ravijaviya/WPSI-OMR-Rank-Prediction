@@ -559,9 +559,9 @@ elif st.session_state.page == 'Leaderboard':
 
         df = df.sort_values(by=["Status", "Total"], ascending=[False, False]).reset_index(drop=True)
         df['Rank'] = df[['Status', 'Total']].apply(tuple, axis=1).rank(method='min', ascending=False).astype(int)
-        df['Roll Number'] = df['Roll Number'].apply(mask_roll_number)
+        df['Roll Number'] = df['Roll Number']#.apply(mask_roll_number)
         
-        display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']].head(500)
+        display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']].head(1000)
         
         def style_status(val):
             if val == 'PASS': color = 'green'
