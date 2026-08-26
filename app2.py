@@ -334,6 +334,26 @@ st.markdown("---") # Adds a clean dividing line under the menu
 if st.session_state.page == 'Upload OMR':
     st.title("📄 Wireless PSI - OMR Upload")
     st.write("Enter your details and upload your scanned OMR sheet (PDF) to evaluate your score.")
+    # --- NEW BLINKING WARNING ---
+    st.markdown(
+        """
+        <style>
+        @keyframes blinker {
+            50% { opacity: 0; }
+        }
+        .blinking-text {
+            animation: blinker 1.5s linear infinite;
+            color: red;
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        </style>
+        <div class="blinking-text">DO NOT ENTER PERSONAL INFORMATION LIKE MOBILE, OTP, ETC.</div>
+        """,
+        unsafe_allow_html=True
+    )
+    # -----------------------------
     
     st.subheader("1. Enter Your Details")
     
