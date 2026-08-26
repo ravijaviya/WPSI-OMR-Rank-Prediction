@@ -731,7 +731,8 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
                 "Male Cut-off": [to_cutoffs[f"{cat} Male"] for cat in categories],
                 "Female Cut-off": [to_cutoffs[f"{cat} Female"] for cat in categories]
             })
-
+            st.write("If there is N/A means there are no sufficient cadidates and all who are eligible will get the post.")
+            st.write("The horizontal reservation is calculated dynamically as data grows. Also, we don't have Ex-Army and Specially Abled candidate data which can make cut-off +1 or +2.")
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Police Sub Inspector (Wireless)**")
@@ -740,6 +741,11 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
             with col2:
                 st.markdown("**Technical Operator (TO)**")
                 st.dataframe(to_display, hide_index=True, width='stretch')
+
+            # ... (your st.columns code above) ...
+            
+            st.markdown("---")
+            st.info("✨ **Loving this real-time magic?** \n\nIt takes countless hours of coding and server power to keep this engine running smoothly. If this tool gave you clarity on your rank, consider dropping some motivation in the **Support** section below! 👇")
             
         else:
             st.info("Not enough data to calculate cut-offs yet. Upload an OMR sheet to get started!")
