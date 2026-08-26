@@ -349,7 +349,8 @@ if st.session_state.page == 'Upload OMR':
             margin-bottom: 15px;
         }
         </style>
-        <div class="blinking-text">DO NOT ENTER PERSONAL INFORMATION LIKE MOBILE, OTP, ETC.</div>
+        <div class="blinking-text">NOTE: DO NOT ENTER PERSONAL INFORMATION LIKE MOBILE, OTP, ETC.</div>
+        <div class="blinking-text">તમારી કોઈ પણ વ્યક્તિગત માહિતી ભરવી નહીં. ફક્ત તમારી વાયરલેસ પીએસઆઇ એક્ઝામ નો સીટ નંબર, કેટેગરી અને પેપર સેટ જેવી સામાન્ય માહિતી જ ભરવી.</div>
         """,
         unsafe_allow_html=True
     )
