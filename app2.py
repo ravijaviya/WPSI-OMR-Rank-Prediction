@@ -690,6 +690,44 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
         st.write("**UPI ID:** `paytmqr5irfbx@ptys`")
         st.link_button("Tap to Pay via UPI App (Mobile) 💸", upi_link)
 
+        # --- CSV DOWNLOAD FEATURE ---
+    st.markdown("---")
+    st.write("🎁 **Bonus:** As you have come here to support, you can download the complete leaderboard list for your own analysis!")
+    
+    with st.spinner("Preparing your file..."):
+        all_data = fetch_leaderboard_data()
+        
+        if all_data:
+            df_dl = pd.DataFrame(all_data)
+            
+            # Ensure missing columns don't break the script
+            if 'Gender' not in df_dl.columns: df_dl['Gender'] = "N/A"
+            if 'Category' not in df_dl.columns: df_dl['Category'] = "N/A"
+            
+            # Mask the roll numbers for privacy
+            if 'Roll Number' in df_dl.columns:
+                df_dl['Roll Number'] = df_dl['Roll Number'].apply(mask_roll_number)
+            
+            # Filter strictly to the requested columns
+            requested_cols = ['Roll Number', 'Paper Code', 'Part A', 'Part B', 'Total', 'Category', 'Gender']
+            # Intersection just in case the sheet is empty or missing a header
+            final_cols = [col for col in requested_cols if col in df_dl.columns]
+            
+            df_dl = df_dl[final_cols]
+            
+            # Convert to CSV bytes
+            csv_bytes = df_dl.to_csv(index=False).encode('utf-8')
+            
+            st.download_button(
+                label="📥 Download Data (CSV)",
+                data=csv_bytes,
+                file_name="wireless_psi_analysis_data.csv",
+                mime="text/csv",
+                type="primary"
+            )
+        else:
+            st.info("No data is available to download yet.")
+
 # ==========================================
 # 4. GLOBAL FOOTER
 # ==========================================
