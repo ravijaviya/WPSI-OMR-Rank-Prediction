@@ -578,6 +578,25 @@ elif st.session_state.page == 'Answer Keys':
     else:
         st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
 
+# --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
+with st.expander("☕ Support this free tool (Optional)", expanded=False):
+    st.write("If this portal saved you time, consider a small tip to help keep the servers running!")
+    
+    # Use columns to put the QR code and the Button side-by-side
+    qr_col, text_col = st.columns([1, 2])
+    
+    with qr_col:
+        # Constrain the image size so it doesn't blow up the screen
+        st.image("QRCode.jpeg", use_container_width=True)
+        
+    with text_col:
+        upi_id = "paytmqr5irfbx@ptys"
+        payee_name = "Javiya%20Ravi"
+        transaction_note = "Support%20OMR%20Project"
+        upi_link = f"upi://pay?pa={upi_id}&pn={payee_name}&tn={transaction_note}&cu=INR"
+        
+        st.write("**UPI ID:** `paytmqr5irfbx@ptys`")
+        st.link_button("Tap to Pay via UPI App (Mobile) 💸", upi_link)
 # ==========================================
 # 4. GLOBAL FOOTER
 # ==========================================
