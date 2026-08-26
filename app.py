@@ -488,11 +488,25 @@ elif st.session_state.page == 'Leaderboard':
         df['Gender'] = df['Gender'].replace('', 'N/A')
         df['Category'] = df['Category'].replace('', 'N/A')
 
+        # --- SUMMARY STATISTICS ---
+        total_submissions = len(df)
+        pass_count = len(df[df['Status'] == 'PASS'])
+        fail_count = len(df[df['Status'] == 'FAIL'])
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Total Submissions", total_submissions)
+        col2.metric("PASS", pass_count)
+        col3.metric("FAIL", fail_count)
+        
+        st.markdown("---") # Adds a visual divider before the table
+
+        # --- RANKING AND FORMATTING ---
         df = df.sort_values(by=["Status", "Total"], ascending=[False, False]).reset_index(drop=True)
         df['Rank'] = df[['Status', 'Total']].apply(tuple, axis=1).rank(method='min', ascending=False).astype(int)
         df['Roll Number'] = df['Roll Number'].apply(mask_roll_number)
         
-        display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']]
+        # --- LIMIT TO TOP 500 ---
+        display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']].head(500)
         
         def style_status(val):
             if val == 'PASS': color = 'green'
@@ -501,6 +515,7 @@ elif st.session_state.page == 'Leaderboard':
             return f'color: {color}; font-weight: bold;'
             
         st.dataframe(display_df.style.map(style_status, subset=['Status']), width='stretch', hide_index=True)
+        st.caption("Showing the top 500 results.")
     else:
         st.info("No submissions yet. Be the first to upload!")
 
