@@ -700,9 +700,15 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
             # 2. Filter strictly for PASSING candidates, sorted by Total Score
             passing_pool = simulation_df[simulation_df['Status'] == 'PASS'].sort_values(by='Total', ascending=False)
 
-            # (Insert your wpsi_vacancies and to_vacancies dictionaries here)
-            wpsi_vacancies = { ... }
-            to_vacancies = { ... }
+            wpsi_vacancies = {
+                "GEN": 74, "EWS": 25, "OBC": 38, "SC": 12, "ST": 23,
+                "Women (GEN)": 24, "Women (EWS)": 8, "Women (OBC)": 12, "Women (SC)": 3, "Women (ST)": 7
+            }
+            
+            to_vacancies = {
+                "GEN": 278, "EWS": 74, "OBC": 165, "SC": 48, "ST": 133,
+                "Women (GEN)": 91, "Women (EWS)": 24, "Women (OBC)": 54, "Women (SC)": 15, "Women (ST)": 43
+            }
 
             # 3. Waterfall Step A: Allocate WPSI
             wpsi_cutoffs, wpsi_allocated_indices = allocate_post(passing_pool, wpsi_vacancies)
