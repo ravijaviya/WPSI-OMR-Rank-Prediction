@@ -629,7 +629,7 @@ elif st.session_state.page == 'Answer Keys':
 # --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
 with st.expander("☕ Support this free tool (Optional)", expanded=False):
     st.write("If this portal saved you time, consider a small tip to help keep the servers running!")
-    
+    st.write("Note: If direct app redirect does not work, take screenshot and use it. Thanks!!")
     qr_col, text_col = st.columns([1, 2])
     
     with qr_col:
