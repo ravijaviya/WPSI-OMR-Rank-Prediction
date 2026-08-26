@@ -5,3 +5,5 @@ google-auth
 opencv-python-headless
 PyMuPDF
 numpy
+user-agents
+requests
