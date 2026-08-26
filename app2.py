@@ -368,20 +368,24 @@ if st.session_state.page == 'Upload OMR':
                             pdf_bytes = uploaded_file.read()
                             
                             # --- MEMORY OPTIMIZED PDF CONVERSION ---
-                            # Updated to use the new pymupdf API
                             doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
                             if doc.page_count == 0:
                                 raise ValueError("The uploaded PDF contains no readable pages.")
                             
                             page = doc.load_page(0) 
                             
-                            zoom_matrix = pymupdf.Matrix(4.16, 4.16) 
-                            pix = page.get_pixmap(matrix=zoom_matrix, alpha=False)
+                            # Use native DPI scaling matching your test script
+                            pix = page.get_pixmap(dpi=300)
                             
-                            img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, 3)
-                            img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+                            img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
                             
-                            doc.close() 
+                            # Safely handle alpha channels matching your test script
+                            if pix.n == 4:
+                                img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
+                            else:
+                                img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
+                            
+                            doc.close()
                             # ---------------------------------------
                             
                             roll_options, paper_options, answers, annotated_img = parse_omr_image(img_cv)
