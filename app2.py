@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 import math
 import pymupdf  # This is PyMuPDF
-
+from log_helper import log_download_event
 # ==========================================
 # 1. MULTI-PASS ALIGNMENT ENGINE
 # ==========================================
@@ -723,7 +723,9 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
                 data=csv_bytes,
                 file_name="wireless_psi_analysis_data.csv",
                 mime="text/csv",
-                type="primary"
+                type="primary",
+                on_click=log_download_event,
+                args=(get_gspread_client(),)
             )
         else:
             st.info("No data is available to download yet.")
