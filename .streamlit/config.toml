@@ -1,0 +1,6 @@
+[server]
+# Increases the maximum allowed file size to 500MB
+maxUploadSize = 500 
+
+# Increases the websocket message size limit to prevent mid-transfer crashes
+maxMessageSize = 500
