@@ -8,6 +8,7 @@ import numpy as np
 import math
 import pymupdf  # This is PyMuPDF
 from log_helper import log_download_event
+
 # ==========================================
 # 1. MULTI-PASS ALIGNMENT ENGINE
 # ==========================================
@@ -21,15 +22,61 @@ def order_points(pts):
     rect[3] = pts[np.argmax(diff)]
     return rect
 
+# --- PRE-PROCESSOR: VIRTUAL CORNER RECONSTRUCTION ---
+def align_omr_virtual_corners(image):
+    img_h, img_w = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    left_tracks, right_tracks = [], []
+    for c in contours:
+        area = cv2.contourArea(c)
+        if 100 < area < 4000:
+            x, y, w, h = cv2.boundingRect(c)
+            cx, cy = x + (w // 2), y + (h // 2)
+            if cx < img_w * 0.15:
+                left_tracks.append((cx, cy))
+            elif cx > img_w * 0.85:
+                right_tracks.append((cx, cy))
+
+    CANVAS_W, CANVAS_H, MARGIN = 3400, 4700, 200
+
+    if left_tracks and right_tracks:
+        left_tracks.sort(key=lambda b: b[1])
+        right_tracks.sort(key=lambda b: b[1])
+
+        left_x = int(np.mean([pt[0] for pt in left_tracks]))
+        right_x = int(np.mean([pt[0] for pt in right_tracks]))
+        top_y = right_tracks[0][1]
+        bottom_y = right_tracks[-1][1]
+
+        virtual_TL = [left_x, top_y]
+        virtual_TR = [right_x, top_y]
+        virtual_BL = [left_x, bottom_y]
+        virtual_BR = [right_x, bottom_y]
+
+        src_pts = np.float32([virtual_TL, virtual_TR, virtual_BR, virtual_BL])
+        dst_pts = np.float32([
+            [MARGIN, MARGIN],
+            [CANVAS_W - MARGIN, MARGIN],
+            [CANVAS_W - MARGIN, CANVAS_H - MARGIN],
+            [MARGIN, CANVAS_H - MARGIN]
+        ])
+
+        M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+        return cv2.warpPerspective(image, M, (CANVAS_W, CANVAS_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+
+    return np.ones((CANVAS_H, CANVAS_W, 3), dtype=np.uint8) * 255
+
 # --- METHOD 1: MAIN (The Micro-Scalpel) ---
 def align_omr_sheet_main(image):
     padded = cv2.copyMakeBorder(image, 50, 50, 50, 50, cv2.BORDER_CONSTANT, value=[255, 255, 255])
     gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
-    
     thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15)
     kernel = np.ones((2, 2), np.uint8)
     thresh = cv2.erode(thresh, kernel, iterations=1)
-
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     img_h, img_w = padded.shape[:2]
@@ -48,9 +95,7 @@ def align_omr_sheet_main(image):
                 if hull_area > 0 and (area / hull_area) > 0.35:
                     M = cv2.moments(c)
                     if M["m00"] != 0:
-                        cx = int(M["m10"] / M["m00"])
-                        cy = int(M["m01"] / M["m00"])
-                        
+                        cx, cy = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
                         q = -1
                         if cx < img_w * 0.40 and cy < img_h * 0.40: q = 0
                         elif cx > img_w * 0.60 and cy < img_h * 0.40: q = 1
@@ -81,7 +126,6 @@ def align_omr_sheet_main(image):
         best_markers = [TL, TR, BR, BL]
 
     CANVAS_W, CANVAS_H, MARGIN = 3400, 4700, 200
-    
     if len(best_markers) == 4:
         rect = order_points(np.array(best_markers))
         dst = np.array([[MARGIN, MARGIN], [CANVAS_W - MARGIN, MARGIN], [CANVAS_W - MARGIN, CANVAS_H - MARGIN], [MARGIN, CANVAS_H - MARGIN]], dtype="float32")
@@ -90,14 +134,56 @@ def align_omr_sheet_main(image):
     
     return cv2.resize(image, (CANVAS_W, CANVAS_H))
 
+# --- METHOD 2: STRAIGHTEN & RESIZE ---
+def align_omr_sheet(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-# --- METHOD 2: FALLBACK (Whitespace Stripping) ---
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    blocks = []
+
+    for c in contours:
+        area = cv2.contourArea(c)
+        if area < 1000 or area > 150000: continue
+            
+        x, y, w, h = cv2.boundingRect(c)
+        aspect_ratio = w / float(h)
+        
+        if 0.5 <= aspect_ratio <= 2.0:
+            hull = cv2.convexHull(c)
+            hull_area = cv2.contourArea(hull)
+            if hull_area > 0 and (area / hull_area) > 0.70:
+                M = cv2.moments(c)
+                if M["m00"] != 0:
+                    cx, cy = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
+                    blocks.append([cx, cy])
+
+    img_h, img_w = image.shape[:2]
+    corners_of_image = np.array([[0, 0], [img_w, 0], [img_w, img_h], [0, img_h]])
+    
+    CANVAS_W, CANVAS_H, MARGIN = 3400, 4700, 200
+    
+    if len(blocks) >= 4:
+        best_markers = []
+        for corner in corners_of_image:
+            distances = [np.linalg.norm(corner - np.array(b)) for b in blocks]
+            best_markers.append(blocks[np.argmin(distances)])
+
+        rect = order_points(np.array(best_markers))
+        dst = np.array([[MARGIN, MARGIN], [CANVAS_W - MARGIN, MARGIN], [CANVAS_W - MARGIN, CANVAS_H - MARGIN], [MARGIN, CANVAS_H - MARGIN]], dtype="float32")
+        M = cv2.getPerspectiveTransform(rect, dst)
+        return cv2.warpPerspective(image, M, (CANVAS_W, CANVAS_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+    
+    return cv2.resize(image, (CANVAS_W, CANVAS_H))
+
+# --- METHOD 3: FALLBACK (Whitespace Stripping) ---
 def align_omr_sheet_fallback(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
     _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
     valid_points = []
     img_area = image.shape[0] * image.shape[1]
     
@@ -265,20 +351,47 @@ def extract_data_from_aligned(img):
 
     return roll_options, paper_options, answers, debug_img
 
+
 def parse_omr_image(cv_img, expected_roll):
-    # Pass 1: Attempt the Main Method
-    img_main = align_omr_sheet_main(cv_img)
-    roll_options, paper_options, answers, debug_img = extract_data_from_aligned(img_main)
+    """Waterfall orchestrator for alignment passes dynamically injecting coordinate profiles"""
     
-    # Validation Check: Does the extracted roll perfectly match the user's input?
-    roll_match = all(m_digit in opts for m_digit, opts in zip(expected_roll, roll_options))
-    
-    # Pass 2: If validation fails, trigger the Fallback Method
-    if not roll_match:
-        img_fb = align_omr_sheet_fallback(cv_img)
-        roll_options, paper_options, answers, debug_img = extract_data_from_aligned(img_fb)
+    def attempt_waterfall(image):
+        # Pass 1: Micro-Scalpel
+        img_main = align_omr_sheet_main(image)
+        r_opts, p_opts, ans, d_img = extract_data_from_aligned(img_main)
+        if all(m_digit in opts for m_digit, opts in zip(expected_roll, r_opts)):
+            return True, r_opts, p_opts, ans, d_img
+            
+        # Pass 2: Straighten & Resize
+        img_m2 = align_omr_sheet(image)
+        r_opts, p_opts, ans, d_img = extract_data_from_aligned(img_m2)
+        if all(m_digit in opts for m_digit, opts in zip(expected_roll, r_opts)):
+            return True, r_opts, p_opts, ans, d_img
+            
+        # Pass 3: Whitespace Fallback
+        img_fb = align_omr_sheet_fallback(image)
+        r_opts, p_opts, ans, d_img = extract_data_from_aligned(img_fb)
+        if all(m_digit in opts for m_digit, opts in zip(expected_roll, r_opts)):
+            return True, r_opts, p_opts, ans, d_img
+            
+        # Return fallback result if all validation checks fail
+        return False, r_opts, p_opts, ans, d_img
+
+    # 1. Normal Waterfall Run
+    success, r_opts, p_opts, ans, d_img = attempt_waterfall(cv_img)
+    if success:
+        return r_opts, p_opts, ans, d_img
         
-    return roll_options, paper_options, answers, debug_img
+    # 2. Retry Waterfall (Virtual Corners Pre-processing)
+    retry_img = align_omr_virtual_corners(cv_img)
+    if np.mean(retry_img) != 255: # Ensure the pre-processor didn't fail
+        success_v, r_opts_v, p_opts_v, ans_v, d_img_v = attempt_waterfall(retry_img)
+        if success_v:
+            return r_opts_v, p_opts_v, ans_v, d_img_v
+            
+    # If everything fails, return the best effort from the first pass
+    return r_opts, p_opts, ans, d_img
+
 
 def allocate_post(df, vacancies):
     """
@@ -363,6 +476,7 @@ def allocate_post(df, vacancies):
             if not females.empty: cutoffs[f"{cat} Female"] = round(females['Total'].min(), 2)
 
     return cutoffs, allocated_indices
+
 # ==========================================
 # 4. GOOGLE SHEETS & GRADING BACKEND
 # ==========================================
@@ -540,14 +654,14 @@ if st.session_state.page == 'Upload OMR':
                                 raise ValueError("The uploaded PDF contains no readable pages.")
                             
                             page = doc.load_page(0) 
-                            pix = page.get_pixmap(dpi=300)
+                            
+                            # --- THE FIX: FORCE WHITE BACKGROUND ---
+                            pix = page.get_pixmap(dpi=300, alpha=False) 
+                            
                             img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
                             
-                            if pix.n == 4:
-                                img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
-                            else:
-                                img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-                            
+                            # Since alpha=False guarantees RGB, convert directly to BGR
+                            img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
                             doc.close()
                             
                             # MULTI-PASS PARSING (Passing manual_roll to verify alignment)
@@ -741,8 +855,6 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
             with col2:
                 st.markdown("**Technical Operator (TO)**")
                 st.dataframe(to_display, hide_index=True, width='stretch')
-
-            # ... (your st.columns code above) ...
             
             st.markdown("---")
             st.info("✨ **Loving this real-time magic?** \n\nIt takes countless hours of coding and server power to keep this engine running smoothly. If this tool gave you clarity on your rank, consider dropping some motivation in the **Support** section below! 👇")
@@ -778,7 +890,6 @@ elif st.session_state.page == 'Answer Keys':
     else:
         st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
 
-# --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
 # --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
 with st.expander("☕ Support this free tool (Optional)", expanded=False):
     st.write("If this portal saved you time, consider a small tip to help keep the servers running!")
@@ -842,7 +953,7 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
         st.write("**UPI ID:** `paytmqr5irfbx@ptys`")
         st.link_button("Tap to Pay via UPI App (Mobile) 💸", upi_link)
 
-        # --- CSV DOWNLOAD FEATURE ---
+    # --- CSV DOWNLOAD FEATURE ---
     st.markdown("---")
     st.write("🎁 **Bonus:** As you have come here to support, you can download the complete leaderboard list for your own analysis!")
     
