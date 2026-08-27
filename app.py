@@ -8,8 +8,9 @@ import numpy as np
 import math
 import pymupdf  # This is PyMuPDF
 from log_helper import log_download_event
+
 # ==========================================
-# 1. MULTI-PASS ALIGNMENT ENGINE
+# 1. FIXED CANVAS ALIGNMENT ENGINE
 # ==========================================
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
@@ -21,158 +22,104 @@ def order_points(pts):
     rect[3] = pts[np.argmax(diff)]
     return rect
 
-# --- METHOD 1: MAIN (The Micro-Scalpel) ---
-def align_omr_sheet_main(image):
-    padded = cv2.copyMakeBorder(image, 50, 50, 50, 50, cv2.BORDER_CONSTANT, value=[255, 255, 255])
-    gray = cv2.cvtColor(padded, cv2.COLOR_BGR2GRAY)
-    
-    thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 51, 15)
-    kernel = np.ones((2, 2), np.uint8)
-    thresh = cv2.erode(thresh, kernel, iterations=1)
-
+def deskew_omr_fallback(image):
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, thresh = cv2.threshold(gray, 100, 255, cv2.THRESH_BINARY_INV)
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    img_h, img_w = padded.shape[:2]
-    best_corners = {0: None, 1: None, 2: None, 3: None}
-    min_dists = {0: float('inf'), 1: float('inf'), 2: float('inf'), 3: float('inf')}
-    targets = {0: (0, 0), 1: (img_w, 0), 2: (img_w, img_h), 3: (0, img_h)}
-
+    img_h, img_w = image.shape[:2]
+    left_blocks, right_blocks = [], []
+    
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
-        if 35 < w < 250 and 35 < h < 250:
-            aspect_ratio = w / float(h)
-            if 0.5 <= aspect_ratio <= 1.9:
-                area = cv2.contourArea(c)
-                hull = cv2.convexHull(c)
-                hull_area = cv2.contourArea(hull)
-                if hull_area > 0 and (area / hull_area) > 0.35:
-                    M = cv2.moments(c)
-                    if M["m00"] != 0:
-                        cx = int(M["m10"] / M["m00"])
-                        cy = int(M["m01"] / M["m00"])
-                        
-                        q = -1
-                        if cx < img_w * 0.40 and cy < img_h * 0.40: q = 0
-                        elif cx > img_w * 0.60 and cy < img_h * 0.40: q = 1
-                        elif cx > img_w * 0.60 and cy > img_h * 0.60: q = 2
-                        elif cx < img_w * 0.40 and cy > img_h * 0.60: q = 3
-                        
-                        if q != -1:
-                            dist = np.linalg.norm(np.array([cx, cy]) - np.array(targets[q]))
-                            if dist < min_dists[q]:
-                                min_dists[q] = dist
-                                best_corners[q] = [cx - 50, cy - 50] 
+        if 20 < w < 80 and 10 < h < 40:
+            cx, cy = x + (w // 2), y + (h // 2)
+            if x < 250:
+                left_blocks.append((cx, cy))
+            elif x > (img_w - 250):
+                right_blocks.append((cx, cy))
+                
+    angles = []
+    if len(left_blocks) >= 2:
+        left_blocks = sorted(left_blocks, key=lambda b: b[1])
+        dx = left_blocks[-1][0] - left_blocks[0][0]
+        dy = left_blocks[-1][1] - left_blocks[0][1]
+        angles.append(math.degrees(math.atan2(dx, dy)))
+        
+    if len(right_blocks) >= 2:
+        right_blocks = sorted(right_blocks, key=lambda b: b[1])
+        dx = right_blocks[-1][0] - right_blocks[0][0]
+        dy = right_blocks[-1][1] - right_blocks[0][1]
+        angles.append(math.degrees(math.atan2(dx, dy)))
 
-    matched = {k: v for k, v in best_corners.items() if v is not None}
-    best_markers = []
+    if not angles:
+        return image
+
+    avg_angle = sum(angles) / len(angles)
+    center = (img_w // 2, img_h // 2)
+    rotation_matrix = cv2.getRotationMatrix2D(center, -avg_angle, 1.0)
     
-    if len(matched) == 4:
-        best_markers = [matched[0], matched[1], matched[2], matched[3]]
-    elif len(matched) == 3:
-        missing_idx = [i for i in range(4) if i not in matched][0]
-        TL = np.array(matched.get(0, [0, 0]))
-        TR = np.array(matched.get(1, [0, 0]))
-        BR = np.array(matched.get(2, [0, 0]))
-        BL = np.array(matched.get(3, [0, 0]))
-        if missing_idx == 0:   TL = TR + BL - BR
-        elif missing_idx == 1: TR = TL + BR - BL
-        elif missing_idx == 2: BR = TR + BL - TL
-        elif missing_idx == 3: BL = TL + BR - TR
-        best_markers = [TL, TR, BR, BL]
+    return cv2.warpAffine(image, rotation_matrix, (img_w, img_h), flags=cv2.INTER_CUBIC, borderMode=cv2.BORDER_REPLICATE)
 
-    CANVAS_W, CANVAS_H, MARGIN = 3400, 4700, 200
-    
-    if len(best_markers) == 4:
-        rect = order_points(np.array(best_markers))
-        dst = np.array([[MARGIN, MARGIN], [CANVAS_W - MARGIN, MARGIN], [CANVAS_W - MARGIN, CANVAS_H - MARGIN], [MARGIN, CANVAS_H - MARGIN]], dtype="float32")
-        M = cv2.getPerspectiveTransform(rect, dst)
-        return cv2.warpPerspective(image, M, (CANVAS_W, CANVAS_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
-    
-    return cv2.resize(image, (CANVAS_W, CANVAS_H))
-
-
-# --- METHOD 2: FALLBACK (Whitespace Stripping) ---
-def align_omr_sheet_fallback(image):
+def align_omr_sheet(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    
+    # Aggressive thresholding to guarantee finding black squares
+    # OLD: _, thresh = cv2.threshold(blurred, 150, 255, cv2.THRESH_BINARY_INV)
+    
+    # NEW:
     _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    
+
     contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    valid_points = []
-    img_area = image.shape[0] * image.shape[1]
-    
+    blocks = []
+
     for c in contours:
         area = cv2.contourArea(c)
-        if 100 < area < (img_area * 0.5): 
-            valid_points.append(c)
+        if area < 1000 or area > 150000: 
+            continue
             
-    if valid_points:
-        all_points = np.vstack(valid_points)
-        x, y, w, h = cv2.boundingRect(all_points)
-        x, y = max(0, x - 10), max(0, y - 10)
-        w, h = min(image.shape[1] - x, w + 20), min(image.shape[0] - y, h + 20)
-        cropped_img = image[y:y+h, x:x+w]
-        crop_offset_x, crop_offset_y = x, y
-    else:
-        cropped_img = image
-        crop_offset_x, crop_offset_y = 0, 0
-
-    c_gray = cv2.cvtColor(cropped_img, cv2.COLOR_BGR2GRAY)
-    _, c_thresh = cv2.threshold(c_gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    crop_contours, _ = cv2.findContours(c_thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    
-    img_h, img_w = cropped_img.shape[:2]
-    best_corners = {0: None, 1: None, 2: None, 3: None}
-    min_dists = {0: float('inf'), 1: float('inf'), 2: float('inf'), 3: float('inf')}
-    targets = {0: (0, 0), 1: (img_w, 0), 2: (img_w, img_h), 3: (0, img_h)}
-    
-    for c in crop_contours:
-        cx, cy, cw, ch = cv2.boundingRect(c)
-        if 30 < cw < 300 and 30 < ch < 300:
-            M = cv2.moments(c)
-            if M["m00"] != 0:
-                px, py = int(M["m10"] / M["m00"]), int(M["m01"] / M["m00"])
-                q = -1
-                if px < img_w * 0.20 and py < img_h * 0.20: q = 0
-                elif px > img_w * 0.80 and py < img_h * 0.20: q = 1
-                elif px > img_w * 0.80 and py > img_h * 0.80: q = 2
-                elif px < img_w * 0.20 and py > img_h * 0.80: q = 3
-                
-                if q != -1:
-                    dist = np.linalg.norm(np.array([px, py]) - np.array(targets[q]))
-                    if dist < min_dists[q]:
-                        min_dists[q] = dist
-                        best_corners[q] = [px + crop_offset_x, py + crop_offset_y]
-
-    matched = {k: v for k, v in best_corners.items() if v is not None}
-    best_markers = []
-    
-    if len(matched) == 4:
-        best_markers = [matched[0], matched[1], matched[2], matched[3]]
-    elif len(matched) == 3:
-        missing_idx = [i for i in range(4) if i not in matched][0]
-        TL = np.array(matched.get(0, [0, 0]))
-        TR = np.array(matched.get(1, [0, 0]))
-        BR = np.array(matched.get(2, [0, 0]))
-        BL = np.array(matched.get(3, [0, 0]))
-        if missing_idx == 0:   TL = TR + BL - BR
-        elif missing_idx == 1: TR = TL + BR - BL
-        elif missing_idx == 2: BR = TR + BL - TL
-        elif missing_idx == 3: BL = TL + BR - TR
-        best_markers = [TL, TR, BR, BL]
+        x, y, w, h = cv2.boundingRect(c)
+        aspect_ratio = w / float(h)
         
-    CANVAS_W, CANVAS_H, MARGIN = 3400, 4700, 200
+        if 0.5 <= aspect_ratio <= 2.0:
+            hull = cv2.convexHull(c)
+            hull_area = cv2.contourArea(hull)
+            if hull_area > 0 and (area / hull_area) > 0.70:
+                M = cv2.moments(c)
+                if M["m00"] != 0:
+                    cx = int(M["m10"] / M["m00"])
+                    cy = int(M["m01"] / M["m00"])
+                    blocks.append([cx, cy])
 
-    if len(best_markers) == 4:
+    img_h, img_w = image.shape[:2]
+    corners_of_image = np.array([
+        [0, 0], [img_w, 0], [img_w, img_h], [0, img_h]
+    ])
+    
+    if len(blocks) >= 4:
+        best_markers = []
+        for corner in corners_of_image:
+            distances = [np.linalg.norm(corner - np.array(b)) for b in blocks]
+            best_markers.append(blocks[np.argmin(distances)])
+
         rect = order_points(np.array(best_markers))
-        dst = np.array([[MARGIN, MARGIN], [CANVAS_W - MARGIN, MARGIN], [CANVAS_W - MARGIN, CANVAS_H - MARGIN], [MARGIN, CANVAS_H - MARGIN]], dtype="float32")
+        
+        CANVAS_W = 3400
+        CANVAS_H = 4700
+        MARGIN = 200
+        
+        dst = np.array([
+            [MARGIN, MARGIN],                     
+            [CANVAS_W - MARGIN, MARGIN],          
+            [CANVAS_W - MARGIN, CANVAS_H - MARGIN], 
+            [MARGIN, CANVAS_H - MARGIN]           
+        ], dtype="float32")
+
         M = cv2.getPerspectiveTransform(rect, dst)
         return cv2.warpPerspective(image, M, (CANVAS_W, CANVAS_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
     
-    fallback_canvas = np.ones((CANVAS_H, CANVAS_W, 3), dtype=np.uint8) * 255
-    resized_crop = cv2.resize(cropped_img, (CANVAS_W - (MARGIN * 2), CANVAS_H - (MARGIN * 2)))
-    fallback_canvas[MARGIN:CANVAS_H - MARGIN, MARGIN:CANVAS_W - MARGIN] = resized_crop
-    return fallback_canvas
+    return deskew_omr_fallback(image)
 
 def get_bubble_density(thresh_img, center_x, center_y, radius):
     mask = np.zeros(thresh_img.shape, dtype="uint8")
@@ -202,10 +149,11 @@ CODE_ROW_GAP = 81.2
 CODE_LABELS = ['A', 'B', 'C', 'D', 'E', 'F']
 
 # ==========================================
-# 3. OMR PARSER & VALIDATION
+# 3. OMR PARSER (WITH GREEN HIGHLIGHTS)
 # ==========================================
-def extract_data_from_aligned(img):
-    debug_img = img.copy() 
+def parse_omr_image(cv_img):
+    img = align_omr_sheet(cv_img)
+    debug_img = img.copy()  # Create a copy to draw on
     
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -265,21 +213,6 @@ def extract_data_from_aligned(img):
 
     return roll_options, paper_options, answers, debug_img
 
-def parse_omr_image(cv_img, expected_roll):
-    # Pass 1: Attempt the Main Method
-    img_main = align_omr_sheet_main(cv_img)
-    roll_options, paper_options, answers, debug_img = extract_data_from_aligned(img_main)
-    
-    # Validation Check: Does the extracted roll perfectly match the user's input?
-    roll_match = all(m_digit in opts for m_digit, opts in zip(expected_roll, roll_options))
-    
-    # Pass 2: If validation fails, trigger the Fallback Method
-    if not roll_match:
-        img_fb = align_omr_sheet_fallback(cv_img)
-        roll_options, paper_options, answers, debug_img = extract_data_from_aligned(img_fb)
-        
-    return roll_options, paper_options, answers, debug_img
-
 def allocate_post(df, vacancies):
     """
     Simulates Horizontal Reservation for a specific post.
@@ -312,16 +245,12 @@ def allocate_post(df, vacancies):
         swap_in = eligible_df[eligible_df['Gender'] == 'Female'].head(shortfall)
         
         if not swap_in.empty:
-            # Find the lowest scoring males to push out
             swap_out_indices = gen_candidates[gen_candidates['Gender'] == 'Male'].tail(len(swap_in)).index
             gen_candidates = gen_candidates.drop(swap_out_indices)
             gen_candidates = pd.concat([gen_candidates, swap_in])
             
-            # REINTEGRATION: Add pushed-out males BACK to the eligible pool for category selection
             swapped_out_males = df.loc[swap_out_indices]
             eligible_df = pd.concat([eligible_df, swapped_out_males]).sort_values(by='Total', ascending=False)
-            
-            # Remove the newly swapped-in females from the eligible pool
             eligible_df = eligible_df.drop(swap_in.index)
 
     allocated_indices.extend(gen_candidates.index.tolist())
@@ -363,6 +292,7 @@ def allocate_post(df, vacancies):
             if not females.empty: cutoffs[f"{cat} Female"] = round(females['Total'].min(), 2)
 
     return cutoffs, allocated_indices
+
 # ==========================================
 # 4. GOOGLE SHEETS & GRADING BACKEND
 # ==========================================
@@ -454,6 +384,7 @@ def recalculate_entire_leaderboard():
 
 def mask_roll_number(roll_no):
     roll_str = str(roll_no)
+    # Keeps the first 2 digits and the last 2 digits, masking the middle 4
     return roll_str[:2] + "****" + roll_str[-2:] if len(roll_str) == 8 else "****"
 
 # ==========================================
@@ -464,9 +395,10 @@ st.set_page_config(page_title="Wireless PSI - OMR Portal", layout="centered")
 if 'page' not in st.session_state:
     st.session_state.page = 'Upload OMR'
 # --- MOBILE FRIENDLY NAVIGATION ---
-nav_options = ["Upload OMR", "Leaderboard","Live Cut-Offs 🔴", "Answer Keys"]
+nav_options = ["Upload OMR", "Leaderboard", "Live Cut-Offs 🔴", "Answer Keys"]
 current_index = nav_options.index(st.session_state.page) if st.session_state.page in nav_options else 0
 
+# Places a horizontal menu at the top of the screen instead of hiding it in a sidebar
 page_selection = st.radio(
     "📌 Navigation", 
     nav_options, 
@@ -478,13 +410,13 @@ page_selection = st.radio(
 if page_selection != st.session_state.page:
     st.session_state.page = page_selection
     st.rerun()
-st.markdown("---")
+st.markdown("---") # Adds a clean dividing line under the menu
 
 # --- PAGE 1: UPLOAD OMR ---
 if st.session_state.page == 'Upload OMR':
     st.title("📄 Wireless PSI - OMR Upload")
     st.write("Enter your details and upload your scanned OMR sheet (PDF) to evaluate your score.")
-    
+    # --- NEW BLINKING WARNING ---
     st.markdown(
         """
         <style>
@@ -504,6 +436,7 @@ if st.session_state.page == 'Upload OMR':
         """,
         unsafe_allow_html=True
     )
+    # -----------------------------
     
     st.subheader("1. Enter Your Details")
     
@@ -522,6 +455,7 @@ if st.session_state.page == 'Upload OMR':
         if not manual_roll.startswith("300") or len(manual_roll) != 8:
             st.error("⚠️ Invalid Roll Number. It must be exactly 8 digits long and start with '300'.")
         else:
+            # Safely initialize session state keys for the file processing
             if 'processed_file_id' not in st.session_state: st.session_state.processed_file_id = None
             if 'result_part_a' not in st.session_state: st.session_state.result_part_a = None
             if 'result_part_b' not in st.session_state: st.session_state.result_part_b = None
@@ -529,29 +463,35 @@ if st.session_state.page == 'Upload OMR':
             if 'result_status' not in st.session_state: st.session_state.result_status = None
             if 'result_img' not in st.session_state: st.session_state.result_img = None
                 
+            # If the current file hasn't been successfully processed yet, show the Submit button
             if st.session_state.processed_file_id != uploaded_file.file_id:
                 if st.button("Submit & Evaluate OMR", type="primary"):
                     try:
                         with st.spinner("Processing OMR Sheet & Verifying Data... Please wait."):
                             pdf_bytes = uploaded_file.read()
                             
+                            # --- MEMORY OPTIMIZED PDF CONVERSION ---
                             doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
                             if doc.page_count == 0:
                                 raise ValueError("The uploaded PDF contains no readable pages.")
                             
                             page = doc.load_page(0) 
+                            
+                            # Use native DPI scaling matching your test script
                             pix = page.get_pixmap(dpi=300)
+                            
                             img_array = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
                             
+                            # Safely handle alpha channels matching your test script
                             if pix.n == 4:
                                 img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
                             else:
                                 img_cv = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
                             
                             doc.close()
+                            # ---------------------------------------
                             
-                            # MULTI-PASS PARSING (Passing manual_roll to verify alignment)
-                            roll_options, paper_options, answers, annotated_img = parse_omr_image(img_cv, manual_roll)
+                            roll_options, paper_options, answers, annotated_img = parse_omr_image(img_cv)
                             
                             roll_match = all(m_digit in opts for m_digit, opts in zip(manual_roll, roll_options))
                             paper_match = manual_code in paper_options
@@ -583,7 +523,7 @@ if st.session_state.page == 'Upload OMR':
                                 else:
                                     save_submission(roll_number, paper_code, gender, category, part_a, part_b, total, status, answers)
                                     fetch_leaderboard_data.clear()
-                                    
+                                    # Save full score breakdown to session state
                                     st.session_state.processed_file_id = uploaded_file.file_id
                                     st.session_state.result_part_a = part_a
                                     st.session_state.result_part_b = part_b
@@ -596,9 +536,11 @@ if st.session_state.page == 'Upload OMR':
                         st.error("❌ **Failed to process the PDF file.**")
                         st.error(f"Details: {e}")
 
+            # If the file HAS been successfully processed, show the scorecard and Proceed button
             if st.session_state.processed_file_id == uploaded_file.file_id:
                 st.success("✅ Sheet processed and saved successfully! Here is your result:")
                 
+                # Draw the visual Scorecard
                 score_cols = st.columns(4)
                 score_cols[0].metric("Part A Score", st.session_state.result_part_a)
                 score_cols[1].metric("Part B Score", st.session_state.result_part_b)
@@ -629,6 +571,7 @@ elif st.session_state.page == 'Leaderboard':
         df['Gender'] = df['Gender'].replace('', 'N/A')
         df['Category'] = df['Category'].replace('', 'N/A')
 
+        # --- SUMMARY STATISTICS ---
         total_submissions = len(df)
         pass_count = len(df[df['Status'] == 'PASS'])
         fail_count = len(df[df['Status'] == 'FAIL'])
@@ -638,12 +581,14 @@ elif st.session_state.page == 'Leaderboard':
         col2.metric("PASS", pass_count)
         col3.metric("FAIL", fail_count)
         
-        st.markdown("---") 
+        st.markdown("---") # Adds a visual divider before the table
 
+        # --- RANKING AND FORMATTING ---
         df = df.sort_values(by=["Status", "Total"], ascending=[False, False]).reset_index(drop=True)
         df['Rank'] = df[['Status', 'Total']].apply(tuple, axis=1).rank(method='min', ascending=False).astype(int)
         df['Roll Number'] = df['Roll Number'].apply(mask_roll_number)
         
+        # --- LIMIT TO TOP 500 ---
         display_df = df[['Rank', 'Roll Number', 'Paper Code', 'Gender', 'Category', 'Part A', 'Part B', 'Total', 'Status']].head(500)
         
         def style_status(val):
@@ -657,10 +602,12 @@ elif st.session_state.page == 'Leaderboard':
     else:
         st.info("No submissions yet. Be the first to upload!")
 
+    # --- NEW VACANCY DETAILS TABLE ---
     st.markdown("---")
     st.subheader("📊 Official Vacancy Details")
     st.write("Category-wise seat distribution based on the official notification:")
     
+    # Hardcoding the extracted data from the official image
     vacancy_data = {
         "Post Name": ["Police Sub Inspector (Wireless)", "Technical Operator"],
         "Total Seats": [172, 698],
@@ -679,6 +626,8 @@ elif st.session_state.page == 'Leaderboard':
     }
     
     vacancy_df = pd.DataFrame(vacancy_data)
+    
+    # Displaying the dataframe cleanly
     st.dataframe(vacancy_df, hide_index=True, width='stretch')
 
 # --- PAGE 3: LIVE CUT-OFF PREDICTOR ---
@@ -731,8 +680,9 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
                 "Male Cut-off": [to_cutoffs[f"{cat} Male"] for cat in categories],
                 "Female Cut-off": [to_cutoffs[f"{cat} Female"] for cat in categories]
             })
-            st.write("If there is N/A means there are no sufficient cadidates and all who are eligible will get the post.")
+            st.write("If there is N/A means there are no sufficient candidates and all who are eligible will get the post.")
             st.write("The horizontal reservation is calculated dynamically as data grows. Also, we don't have Ex-Army and Specially Abled candidate data which can make cut-off +1 or +2.")
+            
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Police Sub Inspector (Wireless)**")
@@ -741,8 +691,6 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
             with col2:
                 st.markdown("**Technical Operator (TO)**")
                 st.dataframe(to_display, hide_index=True, width='stretch')
-
-            # ... (your st.columns code above) ...
             
             st.markdown("---")
             st.info("✨ **Loving this real-time magic?** \n\nIt takes countless hours of coding and server power to keep this engine running smoothly. If this tool gave you clarity on your rank, consider dropping some motivation in the **Support** section below! 👇")
@@ -778,7 +726,6 @@ elif st.session_state.page == 'Answer Keys':
     else:
         st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
 
-# --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
 # --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
 with st.expander("☕ Support this free tool (Optional)", expanded=False):
     st.write("If this portal saved you time, consider a small tip to help keep the servers running!")
@@ -842,7 +789,7 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
         st.write("**UPI ID:** `paytmqr5irfbx@ptys`")
         st.link_button("Tap to Pay via UPI App (Mobile) 💸", upi_link)
 
-        # --- CSV DOWNLOAD FEATURE ---
+    # --- CSV DOWNLOAD FEATURE ---
     st.markdown("---")
     st.write("🎁 **Bonus:** As you have come here to support, you can download the complete leaderboard list for your own analysis!")
     
