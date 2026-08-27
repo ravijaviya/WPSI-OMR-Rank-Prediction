@@ -368,8 +368,11 @@ def parse_omr_image(cv_img, expected_roll):
             
     return best_result[0], best_result[1], best_result[2], best_result[3]
 
-
 def allocate_post(df, vacancies):
+    """
+    Simulates Horizontal Reservation for a specific post.
+    Returns the cutoffs, allocated indices, and demographic composition.
+    """
     cutoffs = {
         "GEN Male": "N/A", "GEN Female": "N/A",
         "EWS Male": "N/A", "EWS Female": "N/A",
@@ -379,10 +382,11 @@ def allocate_post(df, vacancies):
     }
     
     allocated_indices = []
+    composition = {}  # Tracks the category breakdown for each allocated seat pool
     eligible_df = df.copy()
     
     if eligible_df.empty:
-        return cutoffs, allocated_indices
+        return cutoffs, allocated_indices, composition
 
     # --- STEP 1: GENERAL (UR) MERIT ALLOCATION ---
     gen_seats = vacancies.get("GEN", 0)
@@ -406,17 +410,24 @@ def allocate_post(df, vacancies):
             eligible_df = eligible_df.drop(swap_in.index)
 
     allocated_indices.extend(gen_candidates.index.tolist())
+    
+    composition["GEN"] = {"Male": {}, "Female": {}}
 
     if not gen_candidates.empty:
         males = gen_candidates[gen_candidates['Gender'] == 'Male']
         females = gen_candidates[gen_candidates['Gender'] == 'Female']
-        if not males.empty: cutoffs["GEN Male"] = round(males['Total'].min(), 2)
-        if not females.empty: cutoffs["GEN Female"] = round(females['Total'].min(), 2)
+        if not males.empty: 
+            cutoffs["GEN Male"] = round(males['Total'].min(), 2)
+            composition["GEN"]["Male"] = males['Category'].value_counts().to_dict()
+        if not females.empty: 
+            cutoffs["GEN Female"] = round(females['Total'].min(), 2)
+            composition["GEN"]["Female"] = females['Category'].value_counts().to_dict()
 
     # --- STEP 2: CATEGORY ALLOCATIONS ---
     categories = ["EWS", "OBC", "SC", "ST"]
     
     for cat in categories:
+        composition[cat] = {"Male": {}, "Female": {}}
         cat_seats = vacancies.get(cat, 0)
         cat_women_needed = vacancies.get(f"Women ({cat})", 0)
         
@@ -440,10 +451,14 @@ def allocate_post(df, vacancies):
         if not cat_candidates.empty:
             males = cat_candidates[cat_candidates['Gender'] == 'Male']
             females = cat_candidates[cat_candidates['Gender'] == 'Female']
-            if not males.empty: cutoffs[f"{cat} Male"] = round(males['Total'].min(), 2)
-            if not females.empty: cutoffs[f"{cat} Female"] = round(females['Total'].min(), 2)
+            if not males.empty: 
+                cutoffs[f"{cat} Male"] = round(males['Total'].min(), 2)
+                composition[cat]["Male"] = males['Category'].value_counts().to_dict()
+            if not females.empty: 
+                cutoffs[f"{cat} Female"] = round(females['Total'].min(), 2)
+                composition[cat]["Female"] = females['Category'].value_counts().to_dict()
 
-    return cutoffs, allocated_indices
+    return cutoffs, allocated_indices, composition
 
 
 # ==========================================
@@ -775,10 +790,12 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
         if data:
             df = pd.DataFrame(data)
             
+            # 1. Clean missing data (Default: GEN / Male)
             simulation_df = df.copy()
             simulation_df['Category'] = simulation_df['Category'].replace(["", "N/A", None], "GEN").fillna("GEN")
             simulation_df['Gender'] = simulation_df['Gender'].replace(["", "N/A", None], "Male").fillna("Male")
             
+            # 2. Filter strictly for PASSING candidates, sorted by Total Score
             passing_pool = simulation_df[simulation_df['Status'] == 'PASS'].sort_values(by='Total', ascending=False)
 
             wpsi_vacancies = {
@@ -791,69 +808,53 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
                 "Women (GEN)": 91, "Women (EWS)": 24, "Women (OBC)": 54, "Women (SC)": 15, "Women (ST)": 43
             }
 
-            wpsi_cutoffs, wpsi_allocated_indices = allocate_post(passing_pool, wpsi_vacancies)
+            # 3. Waterfall Step A: Allocate WPSI (Now catching composition)
+            wpsi_cutoffs, wpsi_allocated_indices, wpsi_comp = allocate_post(passing_pool, wpsi_vacancies)
+            
+            # 4. Waterfall Step B: Remove WPSI winners and allocate TO (Now catching composition)
             to_pool = passing_pool.drop(wpsi_allocated_indices, errors='ignore')
-            to_cutoffs, _ = allocate_post(to_pool, to_vacancies)
+            to_cutoffs, _, to_comp = allocate_post(to_pool, to_vacancies)
 
+            # Helper function to format the composition dict into a clean string (e.g., "GEN: 30, OBC: 20")
+            def format_comp(comp_dict):
+                if not comp_dict: return "-"
+                # Sorts highest count first
+                return ", ".join([f"{k}: {v}" for k, v in sorted(comp_dict.items(), key=lambda item: item[1], reverse=True)])
+
+            # Build Display Tables
             categories = ["GEN", "EWS", "OBC", "SC", "ST"]
             
             wpsi_display = pd.DataFrame({
                 "Category": categories,
                 "Male Cut-off": [wpsi_cutoffs[f"{cat} Male"] for cat in categories],
-                "Female Cut-off": [wpsi_cutoffs[f"{cat} Female"] for cat in categories]
+                "Male Make-up": [format_comp(wpsi_comp.get(cat, {}).get("Male", {})) for cat in categories],
+                "Female Cut-off": [wpsi_cutoffs[f"{cat} Female"] for cat in categories],
+                "Female Make-up": [format_comp(wpsi_comp.get(cat, {}).get("Female", {})) for cat in categories]
             })
             
             to_display = pd.DataFrame({
                 "Category": categories,
                 "Male Cut-off": [to_cutoffs[f"{cat} Male"] for cat in categories],
-                "Female Cut-off": [to_cutoffs[f"{cat} Female"] for cat in categories]
+                "Male Make-up": [format_comp(to_comp.get(cat, {}).get("Male", {})) for cat in categories],
+                "Female Cut-off": [to_cutoffs[f"{cat} Female"] for cat in categories],
+                "Female Make-up": [format_comp(to_comp.get(cat, {}).get("Female", {})) for cat in categories]
             })
             
             st.write("If there is N/A means there are no sufficient candidates and all who are eligible will get the post.")
             st.write("The horizontal reservation is calculated dynamically as data grows. Also, we don't have Ex-Army and Specially Abled candidate data which can make cut-off +1 or +2.")
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Police Sub Inspector (Wireless)**")
-                st.dataframe(wpsi_display, hide_index=True, width='stretch')
+            # Tables stacked vertically so the new composition strings fit beautifully
+            st.markdown("### 👮 Police Sub Inspector (Wireless)")
+            st.dataframe(wpsi_display, hide_index=True, use_container_width=True)
             
-            with col2:
-                st.markdown("**Technical Operator (TO)**")
-                st.dataframe(to_display, hide_index=True, width='stretch')
+            st.markdown("### 📡 Technical Operator (TO)")
+            st.dataframe(to_display, hide_index=True, use_container_width=True)
             
             st.markdown("---")
             st.info("✨ **Loving this real-time magic?** \n\nIt takes countless hours of coding and server power to keep this engine running smoothly. If this tool gave you clarity on your rank, consider dropping some motivation in the **Support** section below! 👇")
             
         else:
             st.info("Not enough data to calculate cut-offs yet. Upload an OMR sheet to get started!")
-
-# --- PAGE 4: ANSWER KEYS ---
-elif st.session_state.page == 'Answer Keys':
-    st.title("🔑 Official Answer Keys")
-    st.write("View the official answer keys used to grade the OMR sheets.")
-    
-    selected_set = st.selectbox("Select Paper Set", ['A', 'B', 'C', 'D', 'E', 'F'])
-    
-    with st.spinner(f"Fetching Answer Key for Set {selected_set}..."):
-        ans_key = fetch_answer_key(selected_set)
-        
-    if ans_key:
-        sorted_qnums = sorted(ans_key.keys(), key=lambda x: int(x.replace("Q", "")))
-        
-        cols = st.columns(4)
-        chunk_size = math.ceil(len(sorted_qnums) / 4)
-        
-        for i in range(4):
-            start_idx = i * chunk_size
-            end_idx = min((i + 1) * chunk_size, len(sorted_qnums))
-            chunk_qnums = sorted_qnums[start_idx:end_idx]
-            
-            if chunk_qnums:
-                table_data = [{"Q No": q, "Answer": ans_key[q]} for q in chunk_qnums]
-                df_chunk = pd.DataFrame(table_data)
-                cols[i].dataframe(df_chunk, width='stretch', hide_index=True)
-    else:
-        st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
 
 # --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
 with st.expander("☕ Support this free tool (Optional)", expanded=False):
