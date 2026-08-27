@@ -8,8 +8,9 @@ import numpy as np
 import math
 import pymupdf  # This is PyMuPDF
 from log_helper import log_download_event
+
 # ==========================================
-# 1. MULTI-PASS ALIGNMENT ENGINE
+# 1. MULTI-PASS ALIGNMENT ENGINES
 # ==========================================
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
@@ -90,8 +91,62 @@ def align_omr_sheet_main(image):
     
     return cv2.resize(image, (CANVAS_W, CANVAS_H))
 
+# --- METHOD 2: VIRTUAL CORNERS (Axis Intersection) ---
+def align_omr_virtual_corners(image):
+    img_h, img_w = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+    _, thresh = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
 
-# --- METHOD 2: FALLBACK (Whitespace Stripping) ---
+    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    left_tracks = []
+    right_tracks = []
+
+    for c in contours:
+        area = cv2.contourArea(c)
+        if 100 < area < 4000:
+            x, y, w, h = cv2.boundingRect(c)
+            cx = x + (w // 2)
+            cy = y + (h // 2)
+
+            if cx < img_w * 0.15:
+                left_tracks.append((cx, cy))
+            elif cx > img_w * 0.85:
+                right_tracks.append((cx, cy))
+
+    CANVAS_W, CANVAS_H, MARGIN = 3400, 4700, 200
+
+    if left_tracks and right_tracks:
+        left_tracks.sort(key=lambda b: b[1])
+        right_tracks.sort(key=lambda b: b[1])
+
+        left_x = int(np.mean([pt[0] for pt in left_tracks]))
+        right_x = int(np.mean([pt[0] for pt in right_tracks]))
+
+        top_y = right_tracks[0][1]
+        bottom_y = right_tracks[-1][1]
+
+        virtual_TL = [left_x, top_y]
+        virtual_TR = [right_x, top_y]
+        virtual_BL = [left_x, bottom_y]
+        virtual_BR = [right_x, bottom_y]
+
+        src_pts = np.float32([virtual_TL, virtual_TR, virtual_BR, virtual_BL])
+        dst_pts = np.float32([
+            [MARGIN, MARGIN],
+            [CANVAS_W - MARGIN, MARGIN],
+            [CANVAS_W - MARGIN, CANVAS_H - MARGIN],
+            [MARGIN, CANVAS_H - MARGIN]
+        ])
+
+        M = cv2.getPerspectiveTransform(src_pts, dst_pts)
+        return cv2.warpPerspective(image, M, (CANVAS_W, CANVAS_H), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=(255, 255, 255))
+
+    return np.ones((CANVAS_H, CANVAS_W, 3), dtype=np.uint8) * 255
+
+
+# --- METHOD 3: FALLBACK (Whitespace Stripping) ---
 def align_omr_sheet_fallback(image):
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -180,31 +235,51 @@ def get_bubble_density(thresh_img, center_x, center_y, radius):
     bubble_pixels = cv2.bitwise_and(thresh_img, thresh_img, mask=mask)
     return cv2.countNonZero(bubble_pixels) / (np.pi * (radius ** 2))
 
+
 # ==========================================
-# 2. MASTER CALIBRATED COORDINATES
+# 2. MASTER CALIBRATED COORDINATE PROFILES
 # ==========================================
-BUBBLE_RADIUS = 25
-ROW_GAP = 81.1
-OPT_GAP = 71
-START_Y = 445
+location1 = {
+    "BUBBLE_RADIUS": 25,
+    "ROW_GAP": 81.1,
+    "OPT_GAP": 71,
+    "START_Y": 445,
+    "MCQ_COLS_X": [385, 895, 1400, 1905],
+    "MCQ_OPTIONS": ['A', 'B', 'C', 'D', 'E'],
+    "ROLL_START_X": 2365,
+    "ROLL_START_Y": 1745,
+    "ROLL_COL_GAP": 71.4,
+    "ROLL_ROW_GAP": 81.2,
+    "CODE_X": 2650,
+    "CODE_START_Y": 3205,
+    "CODE_ROW_GAP": 81.2,
+    "CODE_LABELS": ['A', 'B', 'C', 'D', 'E', 'F']
+}
 
-MCQ_COLS_X = [385, 895, 1400, 1905]
-MCQ_OPTIONS = ['A', 'B', 'C', 'D', 'E']
+location2 = {
+    "BUBBLE_RADIUS": 26,
+    "ROW_GAP": 77.3,
+    "OPT_GAP": 78,
+    "START_Y": 490,
+    "MCQ_COLS_X": [270, 820, 1373, 1925],
+    "MCQ_OPTIONS": ['A', 'B', 'C', 'D', 'E'],
+    "ROLL_START_X": 2425,
+    "ROLL_START_Y": 1728,
+    "ROLL_COL_GAP": 78.5,
+    "ROLL_ROW_GAP": 77.3,
+    "CODE_X": 2740,
+    "CODE_START_Y": 3117,
+    "CODE_ROW_GAP": 77.3,
+    "CODE_LABELS": ['A', 'B', 'C', 'D', 'E', 'F']
+}
 
-ROLL_START_X = 2365
-ROLL_START_Y = 1745
-ROLL_COL_GAP = 71.4
-ROLL_ROW_GAP = 81.2
+location3 = location1  # Fallback uses standard 3400x4700 mapping
 
-CODE_X = 2650
-CODE_START_Y = 3205
-CODE_ROW_GAP = 81.2
-CODE_LABELS = ['A', 'B', 'C', 'D', 'E', 'F']
 
 # ==========================================
 # 3. OMR PARSER & VALIDATION
 # ==========================================
-def extract_data_from_aligned(img):
+def extract_data_from_aligned(img, loc):
     debug_img = img.copy() 
     
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
@@ -215,13 +290,13 @@ def extract_data_from_aligned(img):
     roll_options = []
     for col in range(8):
         scores = []
-        cx = ROLL_START_X + (col * ROLL_COL_GAP)
+        cx = loc["ROLL_START_X"] + (col * loc["ROLL_COL_GAP"])
         for digit in range(10):
-            cy = ROLL_START_Y + (digit * ROLL_ROW_GAP)
-            density = get_bubble_density(thresh, cx, cy, BUBBLE_RADIUS)
+            cy = loc["ROLL_START_Y"] + (digit * loc["ROLL_ROW_GAP"])
+            density = get_bubble_density(thresh, cx, cy, loc["BUBBLE_RADIUS"])
             scores.append(density)
             if density > 0.35:
-                cv2.circle(debug_img, (int(round(cx)), int(round(cy))), BUBBLE_RADIUS + 2, (0, 255, 0), 3)
+                cv2.circle(debug_img, (int(round(cx)), int(round(cy))), loc["BUBBLE_RADIUS"] + 2, (0, 255, 0), 3)
         
         marked = [str(i) for i, score in enumerate(scores) if score > 0.35]
         roll_options.append(marked if marked else ["?"])
@@ -229,35 +304,35 @@ def extract_data_from_aligned(img):
     # 2. Paper Code
     code_scores = []
     for i in range(6):
-        cx = CODE_X
-        cy = CODE_START_Y + (i * CODE_ROW_GAP)
-        density = get_bubble_density(thresh, cx, cy, BUBBLE_RADIUS)
+        cx = loc["CODE_X"]
+        cy = loc["CODE_START_Y"] + (i * loc["CODE_ROW_GAP"])
+        density = get_bubble_density(thresh, cx, cy, loc["BUBBLE_RADIUS"])
         code_scores.append(density)
         if density > 0.35:
-            cv2.circle(debug_img, (int(round(cx)), int(round(cy))), BUBBLE_RADIUS + 2, (0, 255, 0), 3)
+            cv2.circle(debug_img, (int(round(cx)), int(round(cy))), loc["BUBBLE_RADIUS"] + 2, (0, 255, 0), 3)
             
-    marked_codes = [CODE_LABELS[i] for i, score in enumerate(code_scores) if score > 0.35]
+    marked_codes = [loc["CODE_LABELS"][i] for i, score in enumerate(code_scores) if score > 0.35]
     paper_options = marked_codes if marked_codes else ["BLANK"]
 
     # 3. MCQs
     answers = {}
-    for col_idx, start_x in enumerate(MCQ_COLS_X):
+    for col_idx, start_x in enumerate(loc["MCQ_COLS_X"]):
         for row in range(50):
             q_num = (col_idx * 50) + row + 1
-            cy = START_Y + (row * ROW_GAP)
+            cy = loc["START_Y"] + (row * loc["ROW_GAP"])
             
             scores = []
             for opt_idx in range(5):
-                cx = start_x + (opt_idx * OPT_GAP)
-                density = get_bubble_density(thresh, cx, cy, BUBBLE_RADIUS)
+                cx = start_x + (opt_idx * loc["OPT_GAP"])
+                density = get_bubble_density(thresh, cx, cy, loc["BUBBLE_RADIUS"])
                 scores.append(density)
                 if density > 0.35:
-                    cv2.circle(debug_img, (int(round(cx)), int(round(cy))), BUBBLE_RADIUS + 2, (0, 255, 0), 3)
+                    cv2.circle(debug_img, (int(round(cx)), int(round(cy))), loc["BUBBLE_RADIUS"] + 2, (0, 255, 0), 3)
                     
             marked = [i for i, score in enumerate(scores) if score > 0.35]
             
             if len(marked) == 1:
-                answers[f"Q{q_num}"] = MCQ_OPTIONS[marked[0]]
+                answers[f"Q{q_num}"] = loc["MCQ_OPTIONS"][marked[0]]
             elif len(marked) > 1:
                 answers[f"Q{q_num}"] = "MULTIPLE"
             else:
@@ -265,26 +340,36 @@ def extract_data_from_aligned(img):
 
     return roll_options, paper_options, answers, debug_img
 
+
 def parse_omr_image(cv_img, expected_roll):
-    # Pass 1: Attempt the Main Method
-    img_main = align_omr_sheet_main(cv_img)
-    roll_options, paper_options, answers, debug_img = extract_data_from_aligned(img_main)
+    """Waterfall orchestrator for alignment passes dynamically injecting coordinate profiles"""
+    strategies = [
+        ("Micro-Scalpel Method", align_omr_sheet_main, location1),
+        ("Virtual Corner Method", align_omr_virtual_corners, location2),
+        ("Whitespace Fallback Method", align_omr_sheet_fallback, location3)
+    ]
     
-    # Validation Check: Does the extracted roll perfectly match the user's input?
-    roll_match = all(m_digit in opts for m_digit, opts in zip(expected_roll, roll_options))
+    best_result = None
+    highest_match_count = -1
     
-    # Pass 2: If validation fails, trigger the Fallback Method
-    if not roll_match:
-        img_fb = align_omr_sheet_fallback(cv_img)
-        roll_options, paper_options, answers, debug_img = extract_data_from_aligned(img_fb)
+    for name, strategy_func, loc_profile in strategies:
+        aligned_img = strategy_func(cv_img.copy())
+        roll_opts, paper_opts, answers, debug_img = extract_data_from_aligned(aligned_img, loc_profile)
         
-    return roll_options, paper_options, answers, debug_img
+        roll_match = all(m_digit in opts for m_digit, opts in zip(expected_roll, roll_opts))
+        
+        if roll_match:
+            return roll_opts, paper_opts, answers, debug_img
+            
+        match_count = sum(1 for m_digit, opts in zip(expected_roll, roll_opts) if m_digit in opts)
+        if match_count > highest_match_count:
+            highest_match_count = match_count
+            best_result = (roll_opts, paper_opts, answers, debug_img)
+            
+    return best_result[0], best_result[1], best_result[2], best_result[3]
+
 
 def allocate_post(df, vacancies):
-    """
-    Simulates Horizontal Reservation for a specific post.
-    Returns the cutoffs and the list of allocated candidate indices.
-    """
     cutoffs = {
         "GEN Male": "N/A", "GEN Female": "N/A",
         "EWS Male": "N/A", "EWS Female": "N/A",
@@ -312,16 +397,12 @@ def allocate_post(df, vacancies):
         swap_in = eligible_df[eligible_df['Gender'] == 'Female'].head(shortfall)
         
         if not swap_in.empty:
-            # Find the lowest scoring males to push out
             swap_out_indices = gen_candidates[gen_candidates['Gender'] == 'Male'].tail(len(swap_in)).index
             gen_candidates = gen_candidates.drop(swap_out_indices)
             gen_candidates = pd.concat([gen_candidates, swap_in])
             
-            # REINTEGRATION: Add pushed-out males BACK to the eligible pool for category selection
             swapped_out_males = df.loc[swap_out_indices]
             eligible_df = pd.concat([eligible_df, swapped_out_males]).sort_values(by='Total', ascending=False)
-            
-            # Remove the newly swapped-in females from the eligible pool
             eligible_df = eligible_df.drop(swap_in.index)
 
     allocated_indices.extend(gen_candidates.index.tolist())
@@ -363,6 +444,8 @@ def allocate_post(df, vacancies):
             if not females.empty: cutoffs[f"{cat} Female"] = round(females['Total'].min(), 2)
 
     return cutoffs, allocated_indices
+
+
 # ==========================================
 # 4. GOOGLE SHEETS & GRADING BACKEND
 # ==========================================
@@ -463,7 +546,7 @@ st.set_page_config(page_title="Wireless PSI - OMR Portal", layout="centered")
 
 if 'page' not in st.session_state:
     st.session_state.page = 'Upload OMR'
-# --- MOBILE FRIENDLY NAVIGATION ---
+    
 nav_options = ["Upload OMR", "Leaderboard","Live Cut-Offs 🔴", "Answer Keys"]
 current_index = nav_options.index(st.session_state.page) if st.session_state.page in nav_options else 0
 
@@ -532,7 +615,7 @@ if st.session_state.page == 'Upload OMR':
             if st.session_state.processed_file_id != uploaded_file.file_id:
                 if st.button("Submit & Evaluate OMR", type="primary"):
                     try:
-                        with st.spinner("Processing OMR Sheet & Verifying Data... Please wait."):
+                        with st.spinner("Processing OMR Sheet via Multi-Pass Engine... Please wait."):
                             pdf_bytes = uploaded_file.read()
                             
                             doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
@@ -550,7 +633,7 @@ if st.session_state.page == 'Upload OMR':
                             
                             doc.close()
                             
-                            # MULTI-PASS PARSING (Passing manual_roll to verify alignment)
+                            # MULTI-PASS PARSING
                             roll_options, paper_options, answers, annotated_img = parse_omr_image(img_cv, manual_roll)
                             
                             roll_match = all(m_digit in opts for m_digit, opts in zip(manual_roll, roll_options))
@@ -565,8 +648,8 @@ if st.session_state.page == 'Upload OMR':
                                 st.error("❌ **Data Mismatch Detected! Upload Rejected. Contact Admin with Error screenshot.**")
                                 st.write(f"- **Scanned Roll No:** `{scanned_r}` | **Entered Roll No:** `{manual_roll}`")
                                 st.write(f"- **Scanned Paper Set:** `{scanned_p}` | **Entered Paper Set:** `{manual_code}`")
-                                st.info("The system could not verify your manual input against the darkened bubbles. Please check the image below.")
-                                st.image(display_img, caption="Detected bubbles are marked in green.")
+                                st.info("The system attempted 3 separate alignment methods and could not verify your manual input against the darkened bubbles.")
+                                st.image(display_img, caption="Detected bubbles are marked in green (showing best fallback attempt).")
                             
                             else:
                                 roll_number = manual_roll
@@ -692,12 +775,10 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
         if data:
             df = pd.DataFrame(data)
             
-            # 1. Clean missing data (Default: GEN / Male)
             simulation_df = df.copy()
             simulation_df['Category'] = simulation_df['Category'].replace(["", "N/A", None], "GEN").fillna("GEN")
             simulation_df['Gender'] = simulation_df['Gender'].replace(["", "N/A", None], "Male").fillna("Male")
             
-            # 2. Filter strictly for PASSING candidates, sorted by Total Score
             passing_pool = simulation_df[simulation_df['Status'] == 'PASS'].sort_values(by='Total', ascending=False)
 
             wpsi_vacancies = {
@@ -710,14 +791,10 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
                 "Women (GEN)": 91, "Women (EWS)": 24, "Women (OBC)": 54, "Women (SC)": 15, "Women (ST)": 43
             }
 
-            # 3. Waterfall Step A: Allocate WPSI
             wpsi_cutoffs, wpsi_allocated_indices = allocate_post(passing_pool, wpsi_vacancies)
-            
-            # 4. Waterfall Step B: Remove WPSI winners and allocate TO
             to_pool = passing_pool.drop(wpsi_allocated_indices, errors='ignore')
             to_cutoffs, _ = allocate_post(to_pool, to_vacancies)
 
-            # Build Display Tables
             categories = ["GEN", "EWS", "OBC", "SC", "ST"]
             
             wpsi_display = pd.DataFrame({
@@ -731,8 +808,10 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
                 "Male Cut-off": [to_cutoffs[f"{cat} Male"] for cat in categories],
                 "Female Cut-off": [to_cutoffs[f"{cat} Female"] for cat in categories]
             })
-            st.write("If there is N/A means there are no sufficient cadidates and all who are eligible will get the post.")
+            
+            st.write("If there is N/A means there are no sufficient candidates and all who are eligible will get the post.")
             st.write("The horizontal reservation is calculated dynamically as data grows. Also, we don't have Ex-Army and Specially Abled candidate data which can make cut-off +1 or +2.")
+            
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Police Sub Inspector (Wireless)**")
@@ -741,8 +820,6 @@ elif st.session_state.page == 'Live Cut-Offs 🔴':
             with col2:
                 st.markdown("**Technical Operator (TO)**")
                 st.dataframe(to_display, hide_index=True, width='stretch')
-
-            # ... (your st.columns code above) ...
             
             st.markdown("---")
             st.info("✨ **Loving this real-time magic?** \n\nIt takes countless hours of coding and server power to keep this engine running smoothly. If this tool gave you clarity on your rank, consider dropping some motivation in the **Support** section below! 👇")
@@ -779,28 +856,20 @@ elif st.session_state.page == 'Answer Keys':
         st.warning(f"⚠️ The Answer Key for Paper Set '{selected_set}' is not available yet.")
 
 # --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
-# --- SUPPORT EXPANDER (Compact & Non-Intrusive) ---
 with st.expander("☕ Support this free tool (Optional)", expanded=False):
     st.write("If this portal saved you time, consider a small tip to help keep the servers running!")
     
-    # 1. Define your list of supporters here
     supporters = ["Raj", "Vijay", "Zeel", "Gaurang","Dhaval","Jigar"]
-    
-    # 2. Dynamically generate the CSS keyframes based on the list length
     num_supporters = len(supporters)
     keyframes_css = ""
     
     for i, name in enumerate(supporters):
         start_pct = int((i / num_supporters) * 100)
         end_pct = int(((i + 1) / num_supporters) * 100) - 1
-        
-        # Ensure the last frame perfectly ends at 100%
         if i == num_supporters - 1:
             end_pct = 100
-            
         keyframes_css += f"{start_pct}%, {end_pct}% {{ content: '🎉 Thank you, {name} for your support!'; }}\n        "
 
-    # 3. Inject the dynamically built CSS
     st.markdown(f"""
         <style>
         @keyframes changeSupporter {{
@@ -808,7 +877,7 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
         }}
         .supporter-ticker::after {{
             content: '🎉 Thank you, {supporters[0]} for your support!'; 
-            animation: changeSupporter {num_supporters * 2}s infinite; /* 2 seconds per person */
+            animation: changeSupporter {num_supporters * 2}s infinite;
             color: #28a745;
             font-weight: 600;
         }}
@@ -842,7 +911,6 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
         st.write("**UPI ID:** `paytmqr5irfbx@ptys`")
         st.link_button("Tap to Pay via UPI App (Mobile) 💸", upi_link)
 
-        # --- CSV DOWNLOAD FEATURE ---
     st.markdown("---")
     st.write("🎁 **Bonus:** As you have come here to support, you can download the complete leaderboard list for your own analysis!")
     
@@ -852,22 +920,15 @@ with st.expander("☕ Support this free tool (Optional)", expanded=False):
         if all_data:
             df_dl = pd.DataFrame(all_data)
             
-            # Ensure missing columns don't break the script
             if 'Gender' not in df_dl.columns: df_dl['Gender'] = "N/A"
             if 'Category' not in df_dl.columns: df_dl['Category'] = "N/A"
-            
-            # Mask the roll numbers for privacy
             if 'Roll Number' in df_dl.columns:
                 df_dl['Roll Number'] = df_dl['Roll Number'].apply(mask_roll_number)
             
-            # Filter strictly to the requested columns
             requested_cols = ['Roll Number', 'Category', 'Gender', 'Paper Code', 'Part A', 'Part B', 'Total']
-            # Intersection just in case the sheet is empty or missing a header
             final_cols = [col for col in requested_cols if col in df_dl.columns]
-            
             df_dl = df_dl[final_cols]
             
-            # Convert to CSV bytes
             csv_bytes = df_dl.to_csv(index=False).encode('utf-8')
             
             st.download_button(
