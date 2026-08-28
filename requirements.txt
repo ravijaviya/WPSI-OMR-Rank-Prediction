@@ -1,9 +1,9 @@
-streamlit
+streamlit>=1.42.0
+Authlib>=1.3.2
+requests
+opencv-python-headless
+numpy
+PyMuPDF
 pandas
 gspread
 google-auth
-opencv-python-headless
-PyMuPDF
-numpy
-user-agents
-requests
