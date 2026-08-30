@@ -9,7 +9,7 @@ import streamlit as st
 def initialize_private_modules():
     pat = st.secrets["GITHUB_PAT"]
     repo = st.secrets["GITHUB_REPO"]
-    branch = st.secrets.get("backup30Aug", "main")
+    branch = st.secrets.get("GITHUB_BRANCH", "main")
     
     url = f"https://api.github.com/repos/{repo}/zipball/{branch}"
     headers = {
