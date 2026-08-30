@@ -1,6 +1,6 @@
 [theme]
 # Base can be "light" or "dark"
-base = "light"
+base = "dark"
 
 [server]
 # Increases the maximum allowed file size to 500MB
