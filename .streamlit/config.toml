@@ -1,6 +1,10 @@
+[theme]
+# Base can be "light" or "dark"
+base = "light"
+
 [server]
 # Increases the maximum allowed file size to 500MB
-maxUploadSize = 500 
+maxUploadSize = 100 
 
-# Increases the websocket message size limit to prevent mid-transfer crashes
+# Increases the WebSocket message size limit to prevent mid-transfer crashes
 maxMessageSize = 500
