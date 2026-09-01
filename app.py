@@ -79,9 +79,9 @@ def initialize_private_modules():
 initialize_private_modules()
 
 # 2. Import the unified runner
-# from main_runner import start_app
+from main_runner import start_app
 
 # 3. Launch or Maintenance Screen
-# start_app()
-maintainance()
+start_app()
+#maintainance()
 
