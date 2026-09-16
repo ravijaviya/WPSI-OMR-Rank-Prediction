@@ -13,7 +13,9 @@ st.set_page_config(
 def maintainance():
     st.markdown(
         """
-        <meta http-equiv="refresh" content="0; URL='https://wirelesspsi.streamlit.app/'" />
+        <script>
+            window.top.location.href = "https://your-second-app-url.streamlit.app/";
+        </script>
         """,
         unsafe_allow_html=True,
     )
