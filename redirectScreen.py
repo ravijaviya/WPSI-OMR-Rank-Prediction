@@ -29,17 +29,16 @@ def start_app():
     st.error("⚠️ **Portal Link Decommissioned & Migrated**")
     
     st.markdown(
-        """
-        ### This specific entry URL has been officially retired.
-        
-        To provide enhanced security, automated fraud prevention, and faster rank analytics, our infrastructure has been fully migrated to a centralized main platform. 
-        
-        **Please transition to the new active portal below:**
+        """### આ લિંક હવે સત્તાવાર રીતે બંધ કરવામાં આવી છે.
+
+        વધુ સારી સુરક્ષા, ઓટોમેટેડ ફ્રોડ પ્રિવેન્શન અને ઝડપી રેન્ક એનાલિટિક્સ પ્રદાન કરવા માટે, અમારી સિસ્ટમ હવે સેન્ટ્રલાઈઝ્ડ મુખ્ય પ્લેટફોર્મ પર શિફ્ટ કરવામાં આવી છે. 
+
+        **કૃપા કરીને નીચે આપેલા નવા પોર્ટલ પર જાઓ:**
         """
     )
 
     # Replace with your actual second app URL
-    new_portal_url = "https://your-second-app-url.streamlit.app/"
+    new_portal_url = "https://wirelesspsi.streamlit.app/"
 
     col_space1, col_cta, col_space2 = st.columns([1, 2, 1])
     with col_cta:
