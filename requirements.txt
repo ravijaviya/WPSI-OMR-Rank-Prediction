@@ -14,3 +14,4 @@ gspread
 google-auth
 user_agents
 pyzbar
+google-api-python-client
