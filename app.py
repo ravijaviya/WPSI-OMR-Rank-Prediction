@@ -13,15 +13,31 @@ st.set_page_config(
 def maintainance():
     st.markdown(
         """
-        <script>
-            window.top.location.href = "https://your-second-app-url.streamlit.app/";
-        </script>
+        <div style="text-align: center; padding: 40px 20px;">
+            <h1 style="font-size: 5rem; margin-bottom: 0px;">🍲 👨‍💻 ⚙️</h1>
+            <h2 style="margin-top: 10px; color: #f6ad55;">Engineers Out for Dinner!</h2>
+            <p style="font-size: 1.15rem; opacity: 0.85; max-width: 550px; margin: 15px auto;">
+                The servers are taking a quick power nap while we feed the developers and patch a few final bugs.
+            </p>
+            <div style="
+                display: inline-block; 
+                background: rgba(255, 255, 255, 0.05); 
+                border: 1px solid rgba(255, 255, 255, 0.15); 
+                border-radius: 12px; 
+                padding: 12px 24px; 
+                margin-top: 20px;
+            ">
+                <span style="font-size: 0.95rem; font-weight: 600;">
+                    ⏳ Status: Under scheduled maintenance • <strong>Please check back shortly after dinner!</strong>
+                </span>
+            </div>
+        </div>
         """,
         unsafe_allow_html=True,
     )
     
-    st.write("Redirecting to the main portal... If you are not redirected automatically, click the link below.")
-    st.markdown("[Click here to go to the second app](https://wirelesspsi.streamlit.app/)")
+    st.balloons()
+    
 @st.cache_resource(show_spinner="Bootstrapping secure core engine...")
 def initialize_private_modules():
     pat = st.secrets["GITHUB_PAT"]
@@ -63,9 +79,9 @@ def initialize_private_modules():
 initialize_private_modules()
 
 # 2. Import the unified runner
-from main_runner import start_app
-
+#from main_runner import start_app
+from redirectScreen import start_app
 # 3. Launch or Maintenance Screen
-#start_app()
+start_app()
 maintainance()
 
