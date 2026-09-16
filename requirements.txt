@@ -13,3 +13,4 @@ pandas
 gspread
 google-auth
 user_agents
+pyzbar
