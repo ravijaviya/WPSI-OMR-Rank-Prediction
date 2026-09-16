@@ -4,7 +4,7 @@ base = "dark"
 
 [server]
 # Increases the maximum allowed file size to 500MB
-maxUploadSize = 100 
+maxUploadSize = 1 
 
 # Increases the WebSocket message size limit to prevent mid-transfer crashes
 maxMessageSize = 500
