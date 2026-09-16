@@ -53,7 +53,7 @@ def start_app():
     col_space1, col_cta, col_space2 = st.columns([1, 2, 1])
     with col_cta:
         st.link_button(
-            "🚀 Open New Main Portal", 
+            "🚀 Open New Main Portal (Login with same google id)", 
             new_portal_url, 
             type="primary", 
             use_container_width=True
