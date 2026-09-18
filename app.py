@@ -82,6 +82,6 @@ initialize_private_modules()
 from main_runner import start_app
 
 # 3. Launch or Maintenance Screen
-#start_app()
-maintainance()
+start_app()
+#maintainance()
 
