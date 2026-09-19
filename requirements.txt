@@ -16,3 +16,4 @@ user_agents
 pyzbar
 google-api-python-client
 boto3
+streamlit[pdf]
