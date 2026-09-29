@@ -1,9 +1,6 @@
 streamlit>=1.42.0
-Authlib>=1.3.2
-httpx>=0.27.0
 SQLAlchemy>=2.0.0
 psycopg2-binary>=2.9.9
-psycopg[binary]>=3.1.0
 plotly==5.24.1
 requests
 opencv-python-headless
@@ -14,6 +11,5 @@ gspread
 google-auth
 user_agents
 pyzbar
-google-api-python-client
 boto3
-streamlit[pdf]
+xlsxwriter==3.2.0
