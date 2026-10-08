@@ -15,3 +15,6 @@ user_agents
 pyzbar
 boto3
 xlsxwriter==3.2.0
+beautifulsoup4
+easyocr
+Pillow
