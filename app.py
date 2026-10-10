@@ -7,7 +7,7 @@ import streamlit as st
 
 # Set page config for a clean layout
 st.set_page_config(
-    page_title="Under Maintenance", page_icon="🍲", layout="centered"
+    page_title="Under Maintenance", page_icon="🍲", layout="wide"
 )
 
 def maintainance():
