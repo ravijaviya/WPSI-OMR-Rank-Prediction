@@ -1,6 +1,17 @@
 [theme]
 # Base can be "light" or "dark"
 base = "dark"
+primaryColor = "#38BDF8"              # Crisp cyan-blue accent that harmonizes with navy & green deltas
+backgroundColor = "#090D16"           # Slightly deeper obsidian-navy for stronger table contrast
+secondaryBackgroundColor = "#111827"  # Rich slate for sidebar, table headers, and inputs
+textColor = "#F8FAFC"                 # Pure crisp white-slate
+font = "sans serif"
+codeFont = "monospace"
+
+# Optional (supported in Streamlit 1.44+): sharpen borders and radius
+showWidgetBorder = true
+borderColor = "#1E293B"
+baseRadius = "0.5rem"
 
 [server]
 # Increases the maximum allowed file size to 500MB
