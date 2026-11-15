@@ -1,6 +1,16 @@
 [theme]
 # Base can be "light" or "dark"
 base = "dark"
+primaryColor = "#FF4B4B"              # Crisp vibrant red (or use "#6366F1" for electric indigo)
+backgroundColor = "#0B0F19"           # Deep midnight navy-slate instead of flat charcoal
+secondaryBackgroundColor = "#131A2A"  # Elevated cool slate for sidebar and containers
+textColor = "#F1F5F9"                 # Bright off-white for crisp readability
+font = "sans serif"
+
+# Optional (supported in Streamlit 1.44+): sharpen borders and radius
+showWidgetBorder = true
+borderColor = "#1E293B"
+baseRadius = "0.5rem"
 
 [server]
 # Increases the maximum allowed file size to 500MB
