@@ -1,11 +1,12 @@
 [theme]
 # Base can be "light" or "dark"
 base = "dark"
-primaryColor = "#FF4B4B"              # Crisp vibrant red (or use "#6366F1" for electric indigo)
-backgroundColor = "#0B0F19"           # Deep midnight navy-slate instead of flat charcoal
-secondaryBackgroundColor = "#131A2A"  # Elevated cool slate for sidebar and containers
-textColor = "#F1F5F9"                 # Bright off-white for crisp readability
+primaryColor = "#38BDF8"              # Crisp cyan-blue accent that harmonizes with navy & green deltas
+backgroundColor = "#090D16"           # Slightly deeper obsidian-navy for stronger table contrast
+secondaryBackgroundColor = "#111827"  # Rich slate for sidebar, table headers, and inputs
+textColor = "#F8FAFC"                 # Pure crisp white-slate
 font = "sans serif"
+codeFont = "monospace"
 
 # Optional (supported in Streamlit 1.44+): sharpen borders and radius
 showWidgetBorder = true
